@@ -1,0 +1,39 @@
+# Python bytecode & cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Virtual Environment
+.venv/
+venv/
+ENV/
+env/
+
+# Databases & User Data
+*.db
+*.sqlite
+*.sqlite3
+amadeus_finansial.db
+
+# Config and keys
+.env
+*.env
+amadeus_config.json
+
+# Large Asset Directories / Local Ignored Folders
+Ignore folder/
+
+# IDE / Editor folders
+.vscode/
+.idea/
+.project
+.pydevproject
+.settings/
+
+# OS specific files
+Thumbs.db
+db.db
+Desktop.ini
+desktop.ini
