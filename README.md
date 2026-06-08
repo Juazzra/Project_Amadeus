@@ -120,6 +120,12 @@ Project_Amadeus/
 
 ---
 
+## 🚧 Roadmap (Planned Features)
+
+- **📱 Bot Integration (Telegram/WhatsApp)**: Menyambungkan database SQLite dengan API perpesanan agar input *income/outcome* finansial bisa dikirimkan langsung dari *smartphone*.
+- **🗔 Optimize Mode (Mini Overlay)**: Mode *compact* atau *Picture-in-Picture* agar antarmuka Amadeus melayang di sudut layar dan tidak menghalangi ruang kerja (*desktop*) saat sedang sibuk *coding*.
+- **📝 Task & Deadline Manager**: Menambahkan fitur catatan (*notes*) dan integrasi kalender untuk pengingat tenggat waktu tugas (fitur krusial untuk bertahan hidup sebagai mahasiswa tingkat akhir).
+
 ## 🤝 Kontribusi
 Ingin mengembangkan Amadeus lebih jauh? Jangan ragu untuk melakukan fork dan mengirimkan *Pull Request*. 
 
