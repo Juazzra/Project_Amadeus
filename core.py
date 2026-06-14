@@ -110,6 +110,15 @@ def fungsi_setup_database():
                     sumber TEXT
                 )
             ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS catatan (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tanggal TEXT,
+                    judul TEXT,
+                    konten TEXT,
+                    sumber TEXT
+                )
+            ''')
     finally:
         conn.close()
 
@@ -448,4 +457,51 @@ def kirim_notifikasi_telegram(pesan):
             return response.status == 200
     except Exception as e:
         print(f"[SYSTEM LOG] Gagal kirim notifikasi Telegram: {e}")
+        return False
+
+def tambah_catatan(judul, konten, sumber="desktop"):
+    try:
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
+        try:
+            with conn:
+                cursor = conn.cursor()
+                waktu_sekarang = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                cursor.execute('''
+                    INSERT INTO catatan (tanggal, judul, konten, sumber)
+                    VALUES (?, ?, ?, ?)
+                ''', (waktu_sekarang, judul, konten, sumber))
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal menambah catatan: {e}")
+        return False
+
+def ambil_semua_catatan():
+    try:
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, tanggal, judul, konten, sumber FROM catatan ORDER BY tanggal DESC")
+                data = cursor.fetchall()
+        finally:
+            conn.close()
+        return data
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal mengambil catatan: {e}")
+        return []
+
+def hapus_catatan(catatan_id):
+    try:
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM catatan WHERE id = ?", (catatan_id,))
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal menghapus catatan: {e}")
         return False

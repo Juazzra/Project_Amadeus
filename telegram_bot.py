@@ -284,6 +284,104 @@ async def tugas_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(f"❌ Gagal menghapus pengingat `[{t_id}]`.")
 
+async def note_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /note command to list or add notes."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    args = context.args
+    if not args:
+        # Tampilkan daftar catatan
+        catatan_list = core.ambil_semua_catatan()
+        
+        panggilan = core.dapatkan_panggilan_user()
+        panggilan_str = f" {panggilan}" if panggilan else ""
+        
+        lines = [f"📝 *Daftar Catatan Amadeus Untuk{panggilan_str}:*"]
+        if not catatan_list:
+            lines.append("_Belum ada catatan._")
+        else:
+            for c_id, tgl, judul, konten, sumber in catatan_list:
+                lines.append(f"• `[{c_id}]` *{judul}* ({tgl[:10]})")
+                
+        lines.append("\n*Cara membuat catatan baru:*")
+        lines.append("`/note <judul> | <konten>`")
+        lines.append("`/note <konten>` (judul otomatis)")
+        lines.append("\n*Membaca & menghapus catatan:*")
+        lines.append("`/note_detail <id>` — Baca isi lengkap")
+        lines.append("`/note_hapus <id>` — Hapus catatan")
+        
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    # Parse arguments untuk membuat catatan baru
+    raw_args = " ".join(args)
+    try:
+        if "|" in raw_args:
+            judul, konten = raw_args.split("|", 1)
+            judul = judul.strip()
+            konten = konten.strip()
+        else:
+            konten = raw_args.strip()
+            # Judul otomatis dari 4 kata pertama
+            words = konten.split()
+            judul = " ".join(words[:4]) + ("..." if len(words) > 4 else "")
+            
+        if core.tambah_catatan(judul, konten, "telegram"):
+            await update.message.reply_text(
+                f"📝 *Catatan berhasil disimpan!*\n"
+                f"• *Judul:* {judul}\n"
+                f"Tersinkronisasi dengan desktop VN Amadeus.",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("❌ Gagal menyimpan catatan ke database.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Terjadi kesalahan: {e}")
+
+async def note_detail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /note_detail <id> command."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    args = context.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("❌ Format salah. Gunakan: `/note_detail <id_catatan>`", parse_mode="Markdown")
+        return
+        
+    c_id = int(args[0])
+    catatan_list = core.ambil_semua_catatan()
+    catatan = next((c for c in catatan_list if c[0] == c_id), None)
+    
+    if catatan:
+        _, tgl, judul, konten, sumber = catatan
+        response_text = (
+            f"📝 *Detail Catatan [{c_id}]:*\n\n"
+            f"📌 *Judul:* {judul}\n"
+            f"📅 *Tanggal:* {tgl}\n"
+            f"📡 *Sumber:* {sumber.upper()}\n\n"
+            f"💬 *Isi Catatan:*\n{konten}"
+        )
+        await update.message.reply_text(response_text, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(f"❌ Catatan dengan ID `[{c_id}]` tidak ditemukan.", parse_mode="Markdown")
+
+async def note_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /note_hapus <id> command."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    args = context.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("❌ Format salah. Gunakan: `/note_hapus <id_catatan>`", parse_mode="Markdown")
+        return
+        
+    c_id = int(args[0])
+    if core.hapus_catatan(c_id):
+        await update.message.reply_text(f"✓ Catatan `[{c_id}]` berhasil dihapus.")
+    else:
+        await update.message.reply_text(f"❌ Gagal menghapus catatan `[{c_id}]`.")
+
 def main() -> None:
     """Start the bot."""
     if not TOKEN:
@@ -308,6 +406,9 @@ def main() -> None:
     application.add_handler(CommandHandler("tugas", tugas_command))
     application.add_handler(CommandHandler("tugas_selesai", tugas_selesai_command))
     application.add_handler(CommandHandler("tugas_hapus", tugas_hapus_command))
+    application.add_handler(CommandHandler("note", note_command))
+    application.add_handler(CommandHandler("note_detail", note_detail_command))
+    application.add_handler(CommandHandler("note_hapus", note_hapus_command))
     
     # Callback query for model selector button clicks
     application.add_handler(CallbackQueryHandler(model_callback_handler))

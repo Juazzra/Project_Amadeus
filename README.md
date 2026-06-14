@@ -25,8 +25,10 @@ Project Amadeus adalah asisten AI hybrid (otak lokal & cloud) yang dirancang men
 - **📥 Native System Tray & RAM Trimming (background execution)**:
   - Menutup `[X]` jendela akan menyembunyikan Amadeus ke system tray Windows. Saat berjalan di latar belakang, OpenCV video loop di-pause (0% CPU).
   - Menggunakan integrasi Windows Win32 API (`SetProcessWorkingSetSize`), memori fisik (RAM) Amadeus langsung dipangkas otomatis dari **~300 MB** turun ke hanya **10-35 MB** saat di-minimize!
+- **📝 Notes (Catatan) System (Desktop + Telegram Sync)**:
+  Buat, baca, dan hapus catatan secara sinkron melalui tab `📝 Catatan` di GUI desktop atau langsung lewat bot Telegram. Mendukung penulisan judul manual atau penentuan judul otomatis (diambil dari 4 kata pertama isi catatan).
 - **🤖 Telegram Bot Integration**:
-  Telegram Bot berjalan otomatis di background thread asinkron untuk mencatat keuangan, mengecek saldo, mengganti model AI, melihat memori, serta mengelola alarm dari jarak jauh.
+  Telegram Bot berjalan otomatis di background thread asinkron untuk mencatat keuangan, mengecek saldo, mengganti model AI, melihat memori, mengelola alarm, serta menulis/membaca catatan dari jarak jauh.
 
 ---
 
@@ -113,6 +115,11 @@ Hubungi bot Telegram-mu dan gunakan perintah-perintah berikut:
 * `/tugas <waktu> <deskripsi>` — Menambahkan pengingat tugas (contoh: `/tugas 15:30 Rapat Laboratorium`).
 * `/tugas_selesai <id>` — Menandai tugas tertentu telah diselesaikan.
 * `/tugas_hapus <id>` — Menghapus tugas dari database.
+* `/note` — Menampilkan daftar catatan aktif dan petunjuk penggunaan.
+* `/note <judul> | <konten>` — Membuat catatan baru dengan judul dan isi tertentu.
+* `/note <konten>` — Membuat catatan baru dengan judul otomatis (diambil dari 4 kata pertama konten).
+* `/note_detail <id>` — Membaca isi lengkap dari catatan berdasarkan ID.
+* `/note_hapus <id>` — Menghapus catatan dari database berdasarkan ID.
 
 ---
 
@@ -139,7 +146,7 @@ Project_Amadeus/
 ├── terminal.py                     # Versi CLI terminal asisten Amadeus
 ├── run_amadeus.vbs                 # VBScript untuk startup Windows silent mode
 ├── amadeus_config.json             # Pengaturan tersimpan (kecepatan ketik, mode, memori, volume)
-├── amadeus_finansial.db            # Database SQLite transaksi keuangan & tugas pengingat
+├── amadeus_finansial.db            # Database SQLite transaksi keuangan, tugas pengingat, & catatan
 └── README.md                       # Panduan informasi proyek
 ```
 
