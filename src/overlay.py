@@ -24,7 +24,12 @@ class AmadeusVN:
         self.root.geometry("1280x720")
         self.root.resizable(False, False)
 
-        pygame.mixer.init()
+        self.audio_enabled = True
+        try:
+            pygame.mixer.init()
+        except Exception as e:
+            print(f"[SYSTEM LOG] Gagal menginisialisasi pygame mixer (Audio dinonaktifkan): {e}")
+            self.audio_enabled = False
 
         # Set Windows App Logo Icon
         try:
@@ -80,12 +85,13 @@ class AmadeusVN:
         self.btn_skip.place(x=20, y=670, width=120, height=30)
 
         # Play Intro Audio
-        try:
-            pygame.mixer.music.load(r"dump req\intro_bg\intro.mp3")
-            pygame.mixer.music.set_volume(self.voice_volume)
-            pygame.mixer.music.play()
-        except:
-            print("Peringatan: intro.mp3 tidak ditemukan.")
+        if self.audio_enabled:
+            try:
+                pygame.mixer.music.load(r"dump req\intro_bg\intro.mp3")
+                pygame.mixer.music.set_volume(self.voice_volume)
+                pygame.mixer.music.play()
+            except:
+                print("Peringatan: intro.mp3 tidak ditemukan.")
 
         self.root.bind("<space>", self.lanjutkan_dialog)
         self.update_video_active = True
@@ -104,7 +110,8 @@ class AmadeusVN:
             self.playing_intro = False
             try:
                 self.cap_intro.release()
-                pygame.mixer.music.stop()
+                if self.audio_enabled:
+                    pygame.mixer.music.stop()
             except:
                 pass
             # Bersihkan antrean agar frame intro lama tidak dimunculkan lagi
@@ -600,6 +607,8 @@ class AmadeusVN:
         return mood_terdeteksi, balasan
 
     def play_voice_sfx(self, mood):
+        if not self.audio_enabled:
+            return None
         import os
         import random
         
@@ -653,6 +662,8 @@ class AmadeusVN:
         return None
  
     def play_specific_voice(self, filename):
+        if not self.audio_enabled:
+            return None
         import os
         voice_dir = r"dump req\voice_barks"
         file_path = os.path.join(voice_dir, filename)

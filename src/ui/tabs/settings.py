@@ -91,10 +91,14 @@ def render_tab_settings(vn_app):
         # 3. Simpan volume suara
         vol_value = volume_slider.get()
         vn_app.voice_volume = vol_value / 100.0
-        import pygame
-        pygame.mixer.music.set_volume(vn_app.voice_volume)
-        for snd in vn_app.sound_cache.values():
-            snd.set_volume(vn_app.voice_volume)
+        if getattr(vn_app, 'audio_enabled', True):
+            import pygame
+            try:
+                pygame.mixer.music.set_volume(vn_app.voice_volume)
+                for snd in vn_app.sound_cache.values():
+                    snd.set_volume(vn_app.voice_volume)
+            except Exception as e:
+                print(f"[SYSTEM LOG] Gagal menyetel volume audio: {e}")
         
         # 4. Simpan mode AI
         mode_terpilih = vn_app.var_ai_mode.get()
