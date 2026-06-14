@@ -172,20 +172,39 @@ class AmadeusVN:
         self.vn_name.pack(fill=tk.X, padx=15, pady=(10, 0))
 
         panggilan = dapatkan_panggilan_user()
-        import random
-        # Pool greeting: (file_audio, teks_tampilan)
-        greeting_pool = [
-            (
-                "CRS_0000_normal.wav", 
-                f"Selamat pagi, kamu. " + (f"Halo {panggilan}, aku Amadeus. Perlu bantuan laboratorium apa hari ini?" if panggilan else "Halo aku Amadeus, Asisten Laboratorium mu. Perlu apa hari ini?")
-            ),
-            (
-                "CRS_0130_normal.wav", 
-                f"Ngomong-ngomong, aku belum memperkenalkan diri secara resmi ya. Aku Makise Kurisu. Salam kenal. " + (f"Halo {panggilan}, mari kita mulai hari ini." if panggilan else "Halo, mari kita mulai hari ini.")
-            )
-        ]
         
-        selected_audio, teks_sambutan = random.choice(greeting_pool)
+        # Tentukan salam berdasarkan waktu lokal saat ini
+        from datetime import datetime
+        hour = datetime.now().hour
+        if 5 <= hour < 11:
+            waktu_salam = "Selamat pagi"
+            default_audio = "CRS_0000_normal.wav"  # Suara "Ohayou"
+        elif 11 <= hour < 15:
+            waktu_salam = "Selamat siang"
+            default_audio = "CRS_0058_normal.wav"
+        elif 15 <= hour < 18:
+            waktu_salam = "Selamat sore"
+            default_audio = "CRS_0141_normal.wav"
+        else:
+            waktu_salam = "Selamat malam"
+            default_audio = "CRS_0083_normal.wav"
+
+        # Pilihan kalimat sambutan
+        if panggilan:
+            welcome_options = [
+                (default_audio, f"{waktu_salam}, {panggilan}. Senang melihatmu kembali. Ada yang bisa kubantu hari ini?"),
+                ("CRS_0144_normal.wav", f"Sistem Amadeus aktif. Halo {panggilan}, mari kita lanjutkan riset kita hari ini."),
+                ("CRS_0242_normal.wav", f"{waktu_salam}, {panggilan}. Laporan keuangan dan pengingat siap diakses.")
+            ]
+        else:
+            welcome_options = [
+                (default_audio, f"{waktu_salam}. Sistem Amadeus aktif. Asisten laboratorium siap membantumu."),
+                ("CRS_0144_normal.wav", f"Halo. Aku Amadeus, Asisten Laboratorium-mu. Perlu bantuan apa hari ini?"),
+                ("CRS_0242_normal.wav", f"Sistem Amadeus terhubung. Silakan masukkan perintah atau tanyakan sesuatu.")
+            ]
+            
+        import random
+        selected_audio, teks_sambutan = random.choice(welcome_options)
         self.play_specific_voice(selected_audio)
         self.log_history.append(f"[Amadeus (normal | Voice: {selected_audio})]\n{teks_sambutan}")
 
