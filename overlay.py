@@ -189,11 +189,15 @@ class AmadeusVN:
             self.icon_set = ImageTk.PhotoImage(Image.open(r"dump req\settings_logo.png").resize((30, 30)))
             self.icon_mic = ImageTk.PhotoImage(Image.open(r"dump req\microphone.png").resize((25, 25)))
             self.icon_chart = ImageTk.PhotoImage(Image.open(r"dump req\bar-chart.png").resize((30, 30)))
+            self.icon_alarm = ImageTk.PhotoImage(Image.open(r"dump req\circular-alarm-clock-tool.png").resize((30, 30)))
+            self.icon_notes = ImageTk.PhotoImage(Image.open(r"dump req\notes.png").resize((30, 30)))
 
             tk.Button(self.root, image=self.icon_out, bg="#ffffff", bd=0, activebackground="#501010", command=self.keluar_aplikasi).place(x=20, y=20, width=40, height=40)
             tk.Button(self.root, image=self.icon_log, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("log")).place(x=20, y=70, width=40, height=40)
             tk.Button(self.root, image=self.icon_set, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("settings")).place(x=20, y=120, width=40, height=40)
             tk.Button(self.root, image=self.icon_chart, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("visualisasi")).place(x=20, y=170, width=40, height=40)
+            tk.Button(self.root, image=self.icon_alarm, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("tugas")).place(x=20, y=220, width=40, height=40)
+            tk.Button(self.root, image=self.icon_notes, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("catatan")).place(x=20, y=270, width=40, height=40)
         except Exception as e:
             print(f"Gagal memuat ikon: {e}")
 
@@ -442,6 +446,15 @@ class AmadeusVN:
 
     # --- JENDELA TAMBAHAN (UNIFIED OVERLAY PANEL) ---
     def tampilkan_menu_overlay(self, tab_name):
+        self.title_titles = {
+            "transaksi": "💸 Transaksi Finansial",
+            "visualisasi": "📊 Analisis & Visualisasi",
+            "tugas": "⏰ Pengingat / Alarm",
+            "catatan": "📝 Catatan Harian",
+            "log": "📜 System Log & History",
+            "settings": "⚙️ Pengaturan Amadeus"
+        }
+
         # 1. Jika panel sudah terbuka
         if self.overlay_panel:
             if self.active_tab == tab_name:
@@ -467,29 +480,10 @@ class AmadeusVN:
         self.header_frame.pack(side=tk.TOP, fill=tk.X)
         self.header_frame.pack_propagate(False)
 
-        # Tombol-tombol Tab
-        self.tab_buttons = {}
-        tabs = [
-            ("transaksi", "💸 Transaksi"),
-            ("visualisasi", "📊 Visualisasi"),
-            ("tugas", "⏰ Pengingat"),
-            ("catatan", "📝 Catatan"),
-            ("log", "📜 System Log"),
-            ("settings", "⚙️ Settings")
-        ]
-        
-        for name, label in tabs:
-            btn = tk.Button(self.header_frame, text=label, font=("Consolas", 10, "bold"),
-                            bg="#111111", fg="gray", activebackground="#222222", activeforeground="#00ffcc",
-                            relief=tk.FLAT, bd=0, padx=15,
-                            command=lambda n=name: self.switch_tab(n))
-            btn.pack(side=tk.LEFT, fill=tk.Y)
-            
-            # Hover effects
-            btn.bind("<Enter>", lambda e, b=btn: self._on_tab_hover(b, True))
-            btn.bind("<Leave>", lambda e, b=btn: self._on_tab_hover(b, False))
-            
-            self.tab_buttons[name] = btn
+        # Header Title Label (Dedicated Window title instead of tabs)
+        self.title_label = tk.Label(self.header_frame, text=self.title_titles.get(tab_name, ""), 
+                                    font=("Consolas", 11, "bold"), bg="#111111", fg="#00ffcc", padx=15)
+        self.title_label.pack(side=tk.LEFT, fill=tk.Y)
 
         # Tombol Close [X]
         btn_close = tk.Button(self.header_frame, text="✕ Close", font=("Consolas", 10, "bold"),
@@ -504,23 +498,6 @@ class AmadeusVN:
         # Pindah ke tab terpilih
         self.switch_tab(tab_name)
 
-    def _on_tab_hover(self, button, is_enter):
-        # Cari tahu apakah tombol ini sedang aktif
-        current_tab = None
-        for name, btn in self.tab_buttons.items():
-            if btn == button:
-                current_tab = name
-                break
-        
-        if self.active_tab == current_tab:
-            # Tetap pertahankan warna aktif
-            button.config(bg="#222222", fg="#00ffcc")
-        else:
-            if is_enter:
-                button.config(bg="#222222", fg="white")
-            else:
-                button.config(bg="#111111", fg="gray")
-
     def tutup_menu_overlay(self):
         if self.overlay_panel:
             self.overlay_panel.destroy()
@@ -530,12 +507,9 @@ class AmadeusVN:
     def switch_tab(self, tab_name):
         self.active_tab = tab_name
         
-        # Update styling tombol tab
-        for name, btn in self.tab_buttons.items():
-            if name == tab_name:
-                btn.config(bg="#222222", fg="#00ffcc")
-            else:
-                btn.config(bg="#111111", fg="gray")
+        # Update title text
+        if hasattr(self, 'title_label') and self.title_label:
+            self.title_label.config(text=self.title_titles.get(tab_name, ""))
 
         # Hancurkan konten tab sebelumnya jika ada
         for widget in self.content_frame.winfo_children():
