@@ -6,4 +6,4 @@ strPath = objFSO.GetParentFolderName(WScript.ScriptFullName)
 objShell.CurrentDirectory = strPath
 
 ' Jalankan Amadeus menggunakan pythonw.exe agar berjalan tanpa jendela hitam console command prompt
-objShell.Run """" & strPath & "\.venv\Scripts\pythonw.exe"" """ & strPath & "\overlay.py""", 0, False
+objShell.Run """" & strPath & "\.venv\Scripts\pythonw.exe"" """ & strPath & "\src\overlay.py""", 0, False

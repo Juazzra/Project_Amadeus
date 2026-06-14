@@ -3,7 +3,7 @@ from google import genai
 import os
 
 # Load environment variables manually from root or Ignore folder
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 env_paths = [
     os.path.join(BASE_DIR, ".env"),
     os.path.join(BASE_DIR, "Ignore folder", ".env")

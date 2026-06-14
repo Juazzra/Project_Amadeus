@@ -136,18 +136,29 @@ Project_Amadeus/
 │
 ├── dump req/                       # Aset multimedia GUI
 │   ├── amadeus_sprite/             # Sprite Amadeus untuk emosi aktif
-│   ├── background.mp4              # Video latar belakang terminal
-│   ├── intro.mp3 & intro.mp4       # Musik & video intro Amadeus
-│   ├── bar-chart.png               # Ikon visualisasi grafik
-│   └── *_logo.png                  # Gambar ikon/tombol UI
+│   ├── intro_bg/                   # Video latar belakang, video intro, & musik intro
+│   └── logos/                      # Gambar ikon, logo, & tombol UI
 │
-├── core.py                         # Logika utama AI, SQLite & manajemen memori
-├── overlay.py                      # Frontend GUI Visual Novel berbasis Tkinter & scheduling
-├── telegram_bot.py                 # Bot Telegram asinkron untuk asisten jarak jauh
-├── terminal.py                     # Versi CLI terminal asisten Amadeus
+├── src/                            # Kode sumber utama aplikasi
+│   ├── ui/                         # Modul antarmuka GUI
+│   │   └── tabs/                   # Komponen tab-tab overlay modular
+│   │       ├── dashboard.py        # Visualisasi grafik & tabel transaksi keuangan
+│   │       ├── logs.py             # System & conversation logs viewer
+│   │       ├── notes.py            # Pencatatan harian & pratinjau detail
+│   │       ├── reminders.py        # Form input alarm & list tugas
+│   │       └── settings.py         # Slider typing speed, volume, mode AI, & memori
+│   ├── core.py                     # Logika utama AI (Ollama/Gemini), SQLite & ingatan
+│   ├── overlay.py                  # Entrypoint utama VN GUI (Tkinter) & background loops
+│   ├── telegram_bot.py             # Bot Telegram asinkron asisten jarak jauh
+│   └── terminal.py                 # Versi CLI terminal asisten Amadeus
+│
+├── support/                        # File utilitas & diagnostik
+│   ├── cek_model.py                # Pencarian model Gemini aktif pendukung API key
+│   └── test_limit_API.py           # Uji coba batasan/rate-limit API kuota Gemini
+│
 ├── run_amadeus.vbs                 # VBScript untuk startup Windows silent mode
-├── amadeus_config.json             # Pengaturan tersimpan (kecepatan ketik, mode, memori, volume)
-├── amadeus_finansial.db            # Database SQLite transaksi keuangan, tugas pengingat, & catatan
+├── amadeus_config.json             # Pengaturan konfigurasi hybrid yang tersimpan
+├── amadeus_finansial.db            # Database SQLite transaksi, pengingat tugas, & catatan
 └── README.md                       # Panduan informasi proyek
 ```
 

@@ -9,7 +9,7 @@ from google import genai
 # KONFIGURASI GLOBAL & KONTAK API
 # ==========================================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE = os.path.join(BASE_DIR, "amadeus_config.json")
 
 def load_config():
