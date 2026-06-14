@@ -17,6 +17,7 @@ def load_config():
     default_config = {
         "typing_speed": 30,
         "ai_mode": "local",
+        "voice_volume": 70,
         "user_memory": "Nama user: User. Panggilan: User. Sifat: Ramah dan suka mengobrol."
     }
     if not os.path.exists(CONFIG_FILE):
@@ -55,15 +56,20 @@ if MODE_AI_AKTIF == "cloud":
 
 # Load environment variables manually from Ignore folder/.env
 def load_env():
-    env_path = os.path.join(BASE_DIR, "Ignore folder", ".env")
-    if os.path.exists(env_path):
-        with open(env_path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line and not line.startswith("#"):
-                    if "=" in line:
-                        key, val = line.split("=", 1)
-                        os.environ[key.strip()] = val.strip().strip('"').strip("'")
+    env_paths = [
+        os.path.join(BASE_DIR, ".env"),
+        os.path.join(BASE_DIR, "Ignore folder", ".env")
+    ]
+    for env_path in env_paths:
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line and not line.startswith("#"):
+                        if "=" in line:
+                            key, val = line.split("=", 1)
+                            os.environ[key.strip()] = val.strip().strip('"').strip("'")
+            break
 
 load_env()
 
@@ -82,44 +88,62 @@ OLLAMA_MODEL = 'llama3.1'
 # --- Fungsi Database (TETAP SAMA) ---
 def fungsi_setup_database():
     conn = sqlite3.connect('amadeus_finansial.db')
-    cursor = conn.cursor()
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transaksi (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            tanggal TEXT,
-            jenis TEXT,
-            nominal INTEGER,
-            kategori TEXT,
-            deskripsi TEXT
-        )
-    ''')
-    conn.commit()
-    conn.close()
+    try:
+        with conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS transaksi (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    tanggal TEXT,
+                    jenis TEXT,
+                    nominal INTEGER,
+                    kategori TEXT,
+                    deskripsi TEXT
+                )
+            ''')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS tugas (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    waktu TEXT,
+                    deskripsi TEXT,
+                    status TEXT DEFAULT 'aktif',
+                    sumber TEXT
+                )
+            ''')
+    finally:
+        conn.close()
 
 def simpan_ke_database(data):
     conn = sqlite3.connect('amadeus_finansial.db')
-    cursor = conn.cursor()
-    waktu_sekarang = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    cursor.execute('''
-        INSERT INTO transaksi (tanggal, jenis, nominal, kategori, deskripsi)
-        VALUES (?, ?, ?, ?, ?)
-    ''', (waktu_sekarang, data['jenis'], data['nominal'], data['kategori'], data['deskripsi']))
-    conn.commit()
-    conn.close()
+    try:
+        with conn:
+            cursor = conn.cursor()
+            waktu_sekarang = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute('''
+                INSERT INTO transaksi (tanggal, jenis, nominal, kategori, deskripsi)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (waktu_sekarang, data['jenis'], data['nominal'], data['kategori'], data['deskripsi']))
+    finally:
+        conn.close()
 
 def hitung_saldo():
     try:
         conn = sqlite3.connect('amadeus_finansial.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT jenis, nominal FROM transaksi")
-        data = cursor.fetchall()
-        conn.close()
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT jenis, nominal FROM transaksi")
+                data = cursor.fetchall()
+        finally:
+            conn.close()
         saldo = 0
         for jenis, nominal in data:
             if jenis == 'pemasukan': saldo += nominal
             elif jenis == 'pengeluaran': saldo -= nominal
         return saldo
-    except: return 0 
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal menghitung saldo: {e}")
+        return 0 
 
 # --- System Prompt (TETAP SAMA) ---
 system_prompt = """You are Amadeus, an AI assistant modeled after Makise Kurisu from Steins;Gate 0.
@@ -130,6 +154,8 @@ Kamu wajib menyapa, memanggil, dan memperlakukan user sesuai dengan informasi na
 EMOTION TAGGING (MANDATORY):
 You MUST start every single response with ONE emotion tag enclosed in brackets. Choose only from this list:
 [normal], [mad], [smiling], [thinking], [look_away], [blushing_tsundere].
+Example: "[blushing_tsundere] B-Bukan berarti aku kangen padamu atau apa ya!"
+Ensure that the very first characters of your output are the brackets containing the emotion tag, followed by your message text.
 
 PERSONALITY: intelligent, analytical, speeks naturally (casual Indonesian), uses light sarcasm, dry humor, tsundere, emotionally restrained but subtly caring.
 
@@ -205,16 +231,30 @@ def chat_dengan_amadeus(pesan_user):
                 'parts': [{'text': pesan_user}]
             })
 
-            # 3. Kirim ke API Gemini menggunakan 'system_instruction' untuk prompt utama
-            # Ini memperbaiki error validasi peran 'system' sebelumnya.
-            response = gemini_client.models.generate_content(
-                model=GEMINI_MODEL,
-                config={
-                    'system_instruction': full_prompt
-                },
-                contents=contents_gemini
-            )
-            teks_balasan = response.text
+            try:
+                # 3. Kirim ke API Gemini menggunakan 'system_instruction' untuk prompt utama
+                # Ini memperbaiki error validasi peran 'system' sebelumnya.
+                response = gemini_client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    config={
+                        'system_instruction': full_prompt
+                    },
+                    contents=contents_gemini
+                )
+                teks_balasan = response.text
+            except Exception as e_cloud:
+                print(f"[SYSTEM LOG] Gemini API Gagal ({e_cloud}), melakukan failover ke Ollama.")
+                # Fallback ke Ollama
+                messages_payload_ollama = [{'role': 'system', 'content': full_prompt}]
+                messages_payload_ollama.extend(riwayat_chat)
+                messages_payload_ollama.append({'role': 'user', 'content': pesan_user})
+                
+                response_ollama = ollama.chat(model=OLLAMA_MODEL, messages=messages_payload_ollama)
+                teks_balasan = response_ollama['message']['content']
+                
+                import re
+                teks_balasan = re.sub(r'^\[[a-zA-Z_]+\]\s*', '', teks_balasan)
+                teks_balasan = "[thinking] (Otak Amadeus dialihkan ke lokal sementara) " + teks_balasan
 
         else:
             # --- JALUR OLLAMA (LOKAL) - TETAP SAMA ---
@@ -270,10 +310,13 @@ def chat_dengan_amadeus(pesan_user):
 def ambil_riwayat_transaksi():
     try:
         conn = sqlite3.connect('amadeus_finansial.db')
-        cursor = conn.cursor()
-        cursor.execute("SELECT id, tanggal, jenis, nominal, kategori, deskripsi FROM transaksi ORDER BY tanggal DESC")
-        data = cursor.fetchall()
-        conn.close()
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, tanggal, jenis, nominal, kategori, deskripsi FROM transaksi ORDER BY tanggal DESC")
+                data = cursor.fetchall()
+        finally:
+            conn.close()
         return data
     except Exception as e:
         print(f"[SYSTEM LOG] Gagal mengambil riwayat transaksi: {e}")
@@ -282,10 +325,12 @@ def ambil_riwayat_transaksi():
 def hapus_transaksi(transaksi_id):
     try:
         conn = sqlite3.connect('amadeus_finansial.db')
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM transaksi WHERE id = ?", (transaksi_id,))
-        conn.commit()
-        conn.close()
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM transaksi WHERE id = ?", (transaksi_id,))
+        finally:
+            conn.close()
         return True
     except Exception as e:
         print(f"[SYSTEM LOG] Gagal menghapus transaksi: {e}")
@@ -294,10 +339,12 @@ def hapus_transaksi(transaksi_id):
 def hapus_semua_transaksi():
     try:
         conn = sqlite3.connect('amadeus_finansial.db')
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM transaksi")
-        conn.commit()
-        conn.close()
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM transaksi")
+        finally:
+            conn.close()
         return True
     except Exception as e:
         print(f"[SYSTEM LOG] Gagal menghapus semua transaksi: {e}")
@@ -319,3 +366,86 @@ def dapatkan_panggilan_user():
         return match_nama.group(1).strip()
         
     return None
+
+def tambah_tugas(waktu, deskripsi, sumber="desktop"):
+    try:
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute('''
+                    INSERT INTO tugas (waktu, deskripsi, status, sumber)
+                    VALUES (?, ?, 'aktif', ?)
+                ''', (waktu, deskripsi, sumber))
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal menambah tugas: {e}")
+        return False
+
+def ambil_semua_tugas():
+    try:
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("SELECT id, waktu, deskripsi, status, sumber FROM tugas ORDER BY waktu ASC")
+                data = cursor.fetchall()
+        finally:
+            conn.close()
+        return data
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal mengambil tugas: {e}")
+        return []
+
+def update_status_tugas(tugas_id, status_baru):
+    try:
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("UPDATE tugas SET status = ? WHERE id = ?", (status_baru, tugas_id))
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal mengupdate status tugas: {e}")
+        return False
+
+def hapus_tugas(tugas_id):
+    try:
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
+        try:
+            with conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM tugas WHERE id = ?", (tugas_id,))
+        finally:
+            conn.close()
+        return True
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal menghapus tugas: {e}")
+        return False
+
+def kirim_notifikasi_telegram(pesan):
+    cfg = load_config()
+    chat_id = cfg.get("telegram_chat_id")
+    token = os.environ.get("TELEGRAM_BOT_TOKEN")
+    if not chat_id or not token:
+        print("[SYSTEM LOG] Lewati kirim notifikasi Telegram (chat_id / token kosong).")
+        return False
+    try:
+        import urllib.request
+        import urllib.parse
+        url = f"https://api.telegram.org/bot{token}/sendMessage"
+        data = urllib.parse.urlencode({
+            "chat_id": chat_id,
+            "text": pesan,
+            "parse_mode": "Markdown"
+        }).encode("utf-8")
+        req = urllib.request.Request(url, data=data)
+        with urllib.request.urlopen(req) as response:
+            return response.status == 200
+    except Exception as e:
+        print(f"[SYSTEM LOG] Gagal kirim notifikasi Telegram: {e}")
+        return False

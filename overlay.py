@@ -7,6 +7,7 @@ import threading
 import pygame
 import textwrap
 import re # <-- Modul baru untuk mencari Tag Emosi
+import queue # <-- Tambahkan Queue untuk Video Threading
 import core
 from core import chat_dengan_amadeus, fungsi_setup_database, hitung_saldo, ambil_riwayat_transaksi, hapus_transaksi, hapus_semua_transaksi, load_config, save_config, dapatkan_panggilan_user
 
@@ -19,11 +20,27 @@ class AmadeusVN:
 
         pygame.mixer.init()
 
+        # Set Windows App Logo Icon
+        try:
+            app_logo = Image.open(r"dump req\AmadeusLogo.png")
+            self.app_logo_img = ImageTk.PhotoImage(app_logo)
+            self.root.iconphoto(False, self.app_logo_img)
+        except Exception as e:
+            print(f"[SYSTEM LOG] Gagal menyetel logo aplikasi: {e}")
+
+        # Audio & video queues initialization
+        self.sound_cache = {}
+        self.video_queue = queue.Queue(maxsize=5)
+        self.video_thread_running = True
+        self.update_video_active = True
+        self.intro_finished = False
+
         # Variabel Sistem
         self.playing_intro = True
         self.ui_aktif = False
         cfg = load_config()
         self.typing_speed = cfg.get("typing_speed", 30)
+        self.voice_volume = cfg.get("voice_volume", 70) / 100.0
         self.is_typing = False
         self.type_timer = None
         self.sprites = {} # Dictionary penyimpan memori wajah
@@ -35,6 +52,10 @@ class AmadeusVN:
         # Memuat Video
         self.cap_intro = cv2.VideoCapture(r"dump req\intro.mp4")
         self.cap_bg = cv2.VideoCapture(r"dump req\background.mp4")
+
+        # Start Video Thread
+        self.video_thread = threading.Thread(target=self.run_video_thread, daemon=True)
+        self.video_thread.start()
 
         # Canvas Utama
         self.canvas = tk.Canvas(self.root, width=1280, height=720, highlightthickness=0)
@@ -55,13 +76,22 @@ class AmadeusVN:
         # Play Intro Audio
         try:
             pygame.mixer.music.load(r"dump req\intro.mp3")
+            pygame.mixer.music.set_volume(self.voice_volume)
             pygame.mixer.music.play()
         except:
             print("Peringatan: intro.mp3 tidak ditemukan.")
 
         self.root.bind("<space>", self.lanjutkan_dialog)
+        self.update_video_active = True
         self.update_video_frame()
         fungsi_setup_database()
+        self.start_telegram_bot_thread()
+
+        # Setup System Tray
+        self.setup_system_tray()
+
+        # Safe closing handler (Hanya menyembunyikan ke System Tray)
+        self.root.protocol("WM_DELETE_WINDOW", self.sembunyikan_ke_tray)
 
     def skip_intro(self):
         if self.playing_intro:
@@ -71,32 +101,52 @@ class AmadeusVN:
                 pygame.mixer.music.stop()
             except:
                 pass
+            # Bersihkan antrean agar frame intro lama tidak dimunculkan lagi
+            while not self.video_queue.empty():
+                try:
+                    self.video_queue.get_nowait()
+                except:
+                    break
             self.btn_skip.destroy()
             self.bangun_ui_utama()
 
-    def bangun_ui_utama(self):
-        if self.ui_aktif: return
-        self.ui_aktif = True
-
-        # 1. Memuat SEMUA Sprite Amadeus ke dalam Dictionary
+    def get_sprite(self, mood):
+        if mood in self.sprites:
+            return self.sprites[mood]
+            
         sprite_files = {
             "normal": r"dump req\amadeus_sprite\normal_amadeus.png",
             "mad": r"dump req\amadeus_sprite\mad_amadeus.png",
             "smiling": r"dump req\amadeus_sprite\smiling_amadeus.png",
             "thinking": r"dump req\amadeus_sprite\thinking_close_eye_amadeus.png",
             "look_away": r"dump req\amadeus_sprite\look_away_amadeus.png",
-            "blushing_tsundere": r"dump req\amadeus_sprite\blushing_tsundere_amadeus.png" # Ekstra emosi!
+            "blushing_tsundere": r"dump req\amadeus_sprite\blushing_tsundere_amadeus.png"
         }
+        
+        filename = sprite_files.get(mood)
+        if not filename:
+            print(f"[SYSTEM LOG] Mood '{mood}' tidak dikenal, fallback ke 'normal'.")
+            return self.get_sprite("normal")
+            
+        try:
+            print(f"[SYSTEM LOG] Lazy-loading sprite mood: {mood} dari {filename}")
+            img_sprite = Image.open(filename)
+            img_sprite = img_sprite.resize((322, 700))
+            self.pil_sprites[mood] = img_sprite
+            self.sprites[mood] = ImageTk.PhotoImage(img_sprite)
+            return self.sprites[mood]
+        except Exception as e:
+            print(f"Gagal memuat sprite {filename}: {e}")
+            if mood != "normal":
+                return self.get_sprite("normal")
+            return None
 
-        for mood, filename in sprite_files.items():
-            try:
-                img_sprite = Image.open(filename)
-                # Rasio 322x700 agar tidak gepeng
-                img_sprite = img_sprite.resize((322, 700)) 
-                self.pil_sprites[mood] = img_sprite
-                self.sprites[mood] = ImageTk.PhotoImage(img_sprite)
-            except Exception as e:
-                print(f"Gagal memuat sprite {filename}: {e}")
+    def bangun_ui_utama(self):
+        if self.ui_aktif: return
+        self.ui_aktif = True
+
+        # 1. Memuat sprite default (normal) secara lazy loading
+        self.get_sprite("normal")
 
         # Menampilkan sprite default (normal) dan menyimpan ID-nya agar bisa diganti-ganti
         self.sprite_on_canvas = self.canvas.create_image(640, 720, anchor=tk.S, image=self.sprites.get("normal", None))
@@ -109,10 +159,21 @@ class AmadeusVN:
         self.vn_name.pack(fill=tk.X, padx=15, pady=(10, 0))
 
         panggilan = dapatkan_panggilan_user()
-        if panggilan:
-            teks_sambutan = f"Halo {panggilan}, aku Amadeus. Perlu bantuan laboratorium apa hari ini?"
-        else:
-            teks_sambutan = "Halo aku Amadeus, Asisten Laboratorium mu. Perlu apa hari ini?"
+        import random
+        # Pool greeting: (file_audio, teks_tampilan)
+        greeting_pool = [
+            (
+                "CRS_0000n.wav", 
+                f"Selamat pagi, kamu. " + (f"Halo {panggilan}, aku Amadeus. Perlu bantuan laboratorium apa hari ini?" if panggilan else "Halo aku Amadeus, Asisten Laboratorium mu. Perlu apa hari ini?")
+            ),
+            (
+                "CRS_0130.wav", 
+                f"Ngomong-ngomong, aku belum memperkenalkan diri secara resmi ya. Aku Makise Kurisu. Salam kenal. " + (f"Halo {panggilan}, mari kita mulai hari ini." if panggilan else "Halo, mari kita mulai hari ini.")
+            )
+        ]
+        
+        selected_audio, teks_sambutan = random.choice(greeting_pool)
+        self.play_specific_voice(selected_audio)
 
         self.vn_text = tk.Label(self.vn_frame, text=teks_sambutan, font=("Consolas", 12), bg="#111111", fg="white", justify=tk.LEFT, wraplength=770, anchor="nw")
         self.vn_text.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
@@ -127,10 +188,12 @@ class AmadeusVN:
             self.icon_log = ImageTk.PhotoImage(Image.open(r"dump req\logs_logo.png").resize((30, 30)))
             self.icon_set = ImageTk.PhotoImage(Image.open(r"dump req\settings_logo.png").resize((30, 30)))
             self.icon_mic = ImageTk.PhotoImage(Image.open(r"dump req\microphone.png").resize((25, 25)))
+            self.icon_chart = ImageTk.PhotoImage(Image.open(r"dump req\bar-chart.png").resize((30, 30)))
 
-            tk.Button(self.root, image=self.icon_out, bg="#ffffff", bd=0, activebackground="#501010", command=self.root.quit).place(x=20, y=20, width=40, height=40)
+            tk.Button(self.root, image=self.icon_out, bg="#ffffff", bd=0, activebackground="#501010", command=self.keluar_aplikasi).place(x=20, y=20, width=40, height=40)
             tk.Button(self.root, image=self.icon_log, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("log")).place(x=20, y=70, width=40, height=40)
             tk.Button(self.root, image=self.icon_set, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("settings")).place(x=20, y=120, width=40, height=40)
+            tk.Button(self.root, image=self.icon_chart, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("visualisasi")).place(x=20, y=170, width=40, height=40)
         except Exception as e:
             print(f"Gagal memuat ikon: {e}")
 
@@ -162,6 +225,10 @@ class AmadeusVN:
         self.entry_input.bind("<FocusIn>", self.hapus_placeholder)
         self.entry_input.bind("<FocusOut>", self.tambah_placeholder)
         self.entry_input.bind("<Return>", self.kirim_pesan)
+        
+        # Start background check loops
+        self.periksa_pembaruan_database()
+        self.periksa_pengingat_tugas()
 
     def hapus_placeholder(self, event):
         if self.entry_input.get() == self.placeholder_text:
@@ -173,24 +240,105 @@ class AmadeusVN:
             self.entry_input.insert(0, self.placeholder_text)
             self.entry_input.config(fg="gray")
 
-    def update_video_frame(self):
-        if self.playing_intro:
-            ret, frame = self.cap_intro.read()
-            if not ret:
-                self.skip_intro()
+    def run_video_thread(self):
+        import time
+        while self.video_thread_running:
+            if not self.update_video_active:
+                time.sleep(0.05)
+                continue
+                
+            # Mencegah pembacaan/decoding video jika antrean masih penuh (hemat CPU)
+            if self.video_queue.full():
+                time.sleep(0.01)
+                continue
+                
+            ret = False
+            frame = None
+            
+            if self.playing_intro:
+                ret, frame = self.cap_intro.read()
+                if not ret:
+                    self.intro_finished = True
+                    ret, frame = self.cap_bg.read()
+            else:
                 ret, frame = self.cap_bg.read()
-        else:
-            ret, frame = self.cap_bg.read()
-            if not ret:
-                self.cap_bg.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = self.cap_bg.read()
+                if not ret:
+                    self.cap_bg.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                    ret, frame = self.cap_bg.read()
+                    
+            if ret:
+                # OPTIMISASI UTAMA: Gunakan OpenCV C++ untuk resize (jauh lebih cepat daripada PIL)
+                frame_resized = cv2.resize(frame, (1280, 720), interpolation=cv2.INTER_LINEAR)
+                frame_rgb = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
+                frame_pil = Image.fromarray(frame_rgb)
+                try:
+                    self.video_queue.put(frame_pil, block=False)
+                except queue.Full:
+                    pass
+                time.sleep(0.03)
+            else:
+                time.sleep(0.01)
 
-        if ret:
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            frame_pil = Image.fromarray(frame_rgb).resize((1280, 720))
+    def keluar_aplikasi(self):
+        self.video_thread_running = False
+        self.update_video_active = False
+        try:
+            self.cap_intro.release()
+            self.cap_bg.release()
+        except:
+            pass
+        try:
+            if hasattr(self, 'tray_icon'):
+                self.tray_icon.stop()
+        except:
+            pass
+        self.root.quit()
+        self.root.destroy()
+
+    def setup_system_tray(self):
+        import pystray
+        from pystray import MenuItem as item
+        
+        # Load logo for system tray icon
+        try:
+            self.tray_image = Image.open(r"dump req\AmadeusLogo.png").resize((64, 64))
+        except Exception as e:
+            print(f"[SYSTEM LOG] Gagal memuat logo tray: {e}")
+            self.tray_image = Image.new("RGBA", (64, 64), (26, 26, 26, 255))
+            
+        # Definisikan menu klik kanan
+        menu = pystray.Menu(
+            item('Tampilkan Amadeus (Restore)', self.tray_restore),
+            item('Sembunyikan Amadeus (Minimize)', self.tray_minimize),
+            item('Keluar (Exit)', self.tray_exit)
+        )
+        
+        self.tray_icon = pystray.Icon("Amadeus VN", self.tray_image, "Amadeus System", menu)
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
+
+    def tray_restore(self, icon=None, item=None):
+        self.root.after(0, self.restore_main_window)
+        
+    def tray_minimize(self, icon=None, item=None):
+        self.root.after(0, self.sembunyikan_ke_tray)
+        
+    def tray_exit(self, icon=None, item=None):
+        self.root.after(0, self.keluar_aplikasi)
+
+    def update_video_frame(self):
+        if not self.update_video_active:
+            return
+            
+        if hasattr(self, 'intro_finished') and self.intro_finished and self.playing_intro:
+            self.skip_intro()
+            
+        try:
+            frame_pil = self.video_queue.get_nowait()
             self.current_frame_tk = ImageTk.PhotoImage(frame_pil)
             self.canvas.itemconfig(self.vid_img_on_canvas, image=self.current_frame_tk)
-
+        except queue.Empty:
+            pass
+            
         self.root.after(30, self.update_video_frame)
 
     # --- LOGIKA SEGMENTASI & EFEK KETIK ---
@@ -323,6 +471,8 @@ class AmadeusVN:
         self.tab_buttons = {}
         tabs = [
             ("transaksi", "💸 Transaksi"),
+            ("visualisasi", "📊 Visualisasi"),
+            ("tugas", "⏰ Pengingat"),
             ("log", "📜 System Log"),
             ("settings", "⚙️ Settings")
         ]
@@ -393,10 +543,117 @@ class AmadeusVN:
         # Render tab yang baru
         if tab_name == "transaksi":
             self.render_tab_transaksi()
+        elif tab_name == "visualisasi":
+            self.render_tab_visualisasi()
+        elif tab_name == "tugas":
+            self.render_tab_tugas()
         elif tab_name == "log":
             self.render_tab_log()
         elif tab_name == "settings":
             self.render_tab_settings()
+
+    def render_tab_visualisasi(self):
+        import matplotlib.pyplot as plt
+        import matplotlib.ticker as ticker
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+        from datetime import datetime
+        
+        # Judul Tab
+        lbl_title = tk.Label(self.content_frame, text="Analisis & Visualisasi Finansial Amadeus", 
+                             font=("Consolas", 12, "bold"), bg="#1a1a1a", fg="white")
+        lbl_title.pack(anchor="w", padx=15, pady=(15, 5))
+        
+        records = ambil_riwayat_transaksi()
+        if not records:
+            lbl_empty = tk.Label(self.content_frame, text="Belum ada data transaksi untuk divisualisasikan.", 
+                                 font=("Consolas", 12, "italic"), bg="#1a1a1a", fg="gray")
+            lbl_empty.pack(expand=True)
+            return
+
+        # 1. Olah data kategori pengeluaran (Pie Chart)
+        kategori_pengeluaran = {}
+        for _, _, jns, nom, kat, _ in records:
+            if jns.lower() == 'pengeluaran':
+                kategori_pengeluaran[kat] = kategori_pengeluaran.get(kat, 0) + nom
+                
+        # 2. Olah data tren saldo kumulatif (Line Chart)
+        chronological_records = sorted(records, key=lambda x: x[1]) # urut tanggal ascending
+        dates = []
+        balances = []
+        current_balance = 0
+        
+        for _, tgl, jns, nom, _, _ in chronological_records:
+            if jns.lower() == 'pemasukan':
+                current_balance += nom
+            else:
+                current_balance -= nom
+                
+            try:
+                dt = datetime.strptime(tgl, '%Y-%m-%d %H:%M:%S')
+                tgl_fmt = dt.strftime('%m-%d %H:%M')
+            except:
+                tgl_fmt = tgl[:16]
+                
+            dates.append(tgl_fmt)
+            balances.append(current_balance)
+
+        # 3. Membuat Figure Matplotlib bertema gelap
+        fig = plt.Figure(figsize=(7.8, 3.8), facecolor='#1a1a1a')
+        
+        # Subplot 1: Pie Chart Pengeluaran
+        ax1 = fig.add_subplot(121)
+        if kategori_pengeluaran:
+            labels = list(kategori_pengeluaran.keys())
+            sizes = list(kategori_pengeluaran.values())
+            colors = ['#00ffcc', '#ff3366', '#33ccff', '#ffcc00', '#9933ff', '#ff9900']
+            
+            wedges, texts, autotexts = ax1.pie(
+                sizes, labels=labels, autopct='%1.1f%%', startangle=90, 
+                colors=colors[:len(labels)], textprops=dict(color="w", fontsize=8)
+            )
+            for text in texts:
+                text.set_color("w")
+                text.set_fontname("Consolas")
+            for autotext in autotexts:
+                autotext.set_fontsize(8)
+                autotext.set_weight('bold')
+                autotext.set_fontname("Consolas")
+                
+            ax1.set_title("Kategori Pengeluaran", color='white', fontname='Consolas', fontsize=11, fontweight='bold')
+        else:
+            ax1.text(0.5, 0.5, "Tidak ada data\npengeluaran", color='gray', ha='center', va='center', fontname='Consolas', fontsize=10)
+            ax1.axis('off')
+            
+        # Subplot 2: Line Chart Tren Saldo
+        ax2 = fig.add_subplot(122)
+        if dates:
+            ax2.plot(dates, balances, color='#00ffcc', marker='o', markersize=3, linewidth=1.5, label='Saldo')
+            ax2.fill_between(dates, balances, color='#00ffcc', alpha=0.1)
+            ax2.set_title("Tren Saldo Kumulatif", color='white', fontname='Consolas', fontsize=11, fontweight='bold')
+            ax2.set_facecolor('#111111')
+            ax2.tick_params(colors='white', labelsize=8)
+            ax2.grid(True, color='#333333', linestyle='--', linewidth=0.5)
+            
+            for tick in ax2.get_xticklabels():
+                tick.set_rotation(25)
+                tick.set_fontname('Consolas')
+            for tick in ax2.get_yticklabels():
+                tick.set_fontname('Consolas')
+                
+            ax2.xaxis.set_major_locator(ticker.MaxNLocator(5))
+            ax2.yaxis.set_major_formatter(ticker.FuncFormatter(lambda x, pos: f'Rp {int(x):,}'))
+        else:
+            ax2.text(0.5, 0.5, "Tidak ada data\ntransaksi", color='gray', ha='center', va='center', fontname='Consolas', fontsize=10)
+            ax2.axis('off')
+            
+        fig.tight_layout()
+        
+        # Embed Figure ke widget Tkinter
+        canvas = FigureCanvasTkAgg(fig, master=self.content_frame)
+        canvas.draw()
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        canvas_widget.config(bg="#1a1a1a")
 
     def render_tab_transaksi(self):
         # Configure styles untuk Treeview agar bernuansa dark/cyberpunk
@@ -569,6 +826,17 @@ class AmadeusVN:
         speed_slider.set(self.typing_speed)
         speed_slider.pack(anchor="w", padx=20, pady=(0, 10))
 
+        # --- SEKTOR 1B: VOLUME SUARA ---
+        lbl_volume = tk.Label(self.content_frame, text="Volume Suara Kurisu & Musik (%):", 
+                              font=("Consolas", 10), bg="#1a1a1a", fg="#e0e0e0")
+        lbl_volume.pack(anchor="w", padx=20, pady=(5, 0))
+        
+        volume_slider = tk.Scale(self.content_frame, from_=0, to=100, orient=tk.HORIZONTAL, 
+                                 bg="#1a1a1a", fg="white", highlightthickness=0, length=300,
+                                 activebackground="#00ffcc")
+        volume_slider.set(int(self.voice_volume * 100))
+        volume_slider.pack(anchor="w", padx=20, pady=(0, 10))
+
         # --- SEKTOR 2: PEMILIHAN OTAK AI ---
         lbl_brain = tk.Label(self.content_frame, text="AI Brain Source (Mode AI):", 
                              font=("Consolas", 10), bg="#1a1a1a", fg="#e0e0e0")
@@ -627,12 +895,20 @@ class AmadeusVN:
             # 2. Simpan kecepatan teks
             self.typing_speed = speed_slider.get()
             
-            # 3. Simpan mode AI
+            # 3. Simpan volume suara
+            vol_value = volume_slider.get()
+            self.voice_volume = vol_value / 100.0
+            pygame.mixer.music.set_volume(self.voice_volume)
+            for snd in self.sound_cache.values():
+                snd.set_volume(self.voice_volume)
+            
+            # 4. Simpan mode AI
             mode_terpilih = self.var_ai_mode.get()
             
-            # 4. Tulis ke file amadeus_config.json
+            # 5. Tulis ke file amadeus_config.json
             cfg_data = {
                 "typing_speed": self.typing_speed,
+                "voice_volume": vol_value,
                 "ai_mode": mode_terpilih,
                 "user_memory": user_mem_value
             }
@@ -692,12 +968,46 @@ class AmadeusVN:
             mood_terdeteksi = pemetaan_emosi.get(tag_raw, "normal")
             # Hapus tag kurung siku pertama
             balasan = re.sub(r'\[.*?\]', '', balasan, count=1).strip()
+        else:
+            # Fallback analisis sentimen / kata kunci jika AI lupa menyertakan tag emosi
+            text_lower = balasan.lower()
+            
+            # 1. Blushing/Tsundere (gagap, malu, istri, kangen, sayang, tidak suka/malu)
+            # Pola gagap: I-Istri, S-siapa, d-dia, b-bukan, m-memangnya
+            pola_gagap = re.search(r'\b([a-zA-Z])-\1', text_lower)
+            if pola_gagap or any(kw in text_lower for kw in ["istri", "suami", "pacar", "kangen", "merindukan", "malu", "tsundere", "blush", "sayang", "b-bukan", "h-hanya"]):
+                mood_terdeteksi = "blushing_tsundere"
+            # 2. Mad/Angry
+            elif any(kw in text_lower for kw in ["marah", "benci", "kesal", "menyebalkan", "berisik", "bodoh", "baka", "jangan", "kasar"]):
+                mood_terdeteksi = "mad"
+            # 3. Smiling/Happy
+            elif any(kw in text_lower for kw in ["senang", "terima kasih", "makasih", "hebat", "bagus", "haha", "hehe", "smile"]):
+                mood_terdeteksi = "smiling"
+            # 4. Thinking
+            elif any(kw in text_lower for kw in ["pikir", "memikirkan", "analisis", "sepertinya", "mungkin", "rasanya", "kalkulasi", "data", "entahlah"]):
+                mood_terdeteksi = "thinking"
+            # 5. Look Away/Hesitant
+            elif any(kw in text_lower for kw in ["ragu", "anu", "aduh", "bagaimana ya", "sulit"]):
+                mood_terdeteksi = "look_away"
             
         return mood_terdeteksi, balasan
 
     def play_voice_sfx(self, mood):
         import os
-        voice_files = {
+        import random
+        
+        voice_dir = r"dump req\voice_barks"
+        
+        voice_pools = {
+            "normal": ["CRS_0141.wav", "CRS_0144.wav", "CRS_0159.wav", "CRS_0242.wav", "CRS_0058.wav", "CRS_0083.wav"],
+            "mad": ["CRS_0158.wav", "CRS_0172.wav", "CRS_0200.wav", "CRS_0133.wav", "CRS_0121.wav"],
+            "smiling": ["CRS_0141.wav", "CRS_0159.wav", "CRS_0242.wav", "CRS_0182.wav", "CRS_0183.wav"],
+            "thinking": ["CRS_0119.wav", "CRS_0185.wav", "CRS_0247.wav", "CRS_0027angry.wav", "CRS_0193.wav", "CRS_0145.wav", "CRS_0036shy.wav"],
+            "look_away": ["CRS_0172.wav", "CRS_0200.wav", "CRS_0207.wav", "CRS_0209.wav", "CRS_0139.wav"],
+            "blushing_tsundere": ["CRS_0158.wav", "CRS_0148.wav", "CRS_0175.wav", "CRS_0207.wav"]
+        }
+        
+        fallback_files = {
             "normal": r"dump req\voice_normal.wav",
             "mad": r"dump req\voice_mad.wav",
             "smiling": r"dump req\voice_smiling.wav",
@@ -706,15 +1016,47 @@ class AmadeusVN:
             "blushing_tsundere": r"dump req\voice_blushing_tsundere.wav"
         }
         
-        if mood in voice_files:
-            file_path = voice_files[mood]
-            if os.path.exists(file_path):
-                try:
+        file_path = None
+        if mood in voice_pools:
+            selected_file = random.choice(voice_pools[mood])
+            full_path = os.path.join(voice_dir, selected_file)
+            if os.path.exists(full_path):
+                file_path = full_path
+                
+        if not file_path and mood in fallback_files:
+            file_path = fallback_files[mood]
+            
+        if file_path and os.path.exists(file_path):
+            try:
+                pygame.mixer.stop()
+                if file_path in self.sound_cache:
+                    voice_sound = self.sound_cache[file_path]
+                else:
+                    print(f"[SYSTEM LOG] Caching sound: {file_path}")
                     voice_sound = pygame.mixer.Sound(file_path)
-                    voice_sound.set_volume(0.6) # Volume suara Kurisu sedikit lebih keras
-                    voice_sound.play()
-                except Exception as e:
-                    print(f"[SYSTEM LOG] Gagal memutar suara Kurisu ({mood}): {e}")
+                    self.sound_cache[file_path] = voice_sound
+                voice_sound.set_volume(self.voice_volume)
+                voice_sound.play()
+            except Exception as e:
+                print(f"[SYSTEM LOG] Gagal memutar suara Kurisu ({mood}): {e}")
+ 
+    def play_specific_voice(self, filename):
+        import os
+        voice_dir = r"dump req\voice_barks"
+        file_path = os.path.join(voice_dir, filename)
+        if os.path.exists(file_path):
+            try:
+                pygame.mixer.stop()
+                if file_path in self.sound_cache:
+                    voice_sound = self.sound_cache[file_path]
+                else:
+                    print(f"[SYSTEM LOG] Caching sound: {file_path}")
+                    voice_sound = pygame.mixer.Sound(file_path)
+                    self.sound_cache[file_path] = voice_sound
+                voice_sound.set_volume(self.voice_volume)
+                voice_sound.play()
+            except Exception as e:
+                print(f"[SYSTEM LOG] Gagal memutar suara spesifik ({filename}): {e}")
 
     def generate_glitch_frame(self, original_image):
         import random
@@ -747,12 +1089,16 @@ class AmadeusVN:
         return glitch_img
 
     def trigger_glitch_transition(self, target_mood):
+        # Memastikan sprite dimuat secara malas (lazy loading) jika belum ada
+        self.get_sprite(target_mood)
+        
         if target_mood not in self.pil_sprites:
             return
             
+        self.play_voice_sfx(target_mood)
+        
         if target_mood != self.current_mood:
             self.current_mood = target_mood
-            self.play_voice_sfx(target_mood)
             
             pil_base = self.pil_sprites[target_mood]
             glitch_frame_1 = self.generate_glitch_frame(pil_base)
@@ -788,7 +1134,7 @@ class AmadeusVN:
             loading_text = "Memproses analisis data Gemini 3.5 cloud..."
 
         # 1. Update UI: Tampilkan status loading secara aman
-        self.root.after(0, lambda: self.vn_text.config(text=loading_text))
+        self.root.after(0, lambda: (self.vn_text.config(text=loading_text), self.vn_name.config(text="Amadeus")))
         print(f"[SYSTEM LOG] Mengirim permintaan ke {target_brain}: '{pesan_user}'")
         
         # Inisialisasi variabel default
@@ -1072,6 +1418,292 @@ Data Ringkasan Transaksi:
                 self.is_typing = False
 
             self.root.after(0, update_ui_error)
+
+    def start_telegram_bot_thread(self):
+        import threading
+        def run_bot():
+            import telegram_bot
+            try:
+                telegram_bot.main()
+            except Exception as e:
+                print(f"[SYSTEM LOG] Gagal menjalankan Telegram Bot di background thread: {e}")
+        
+        # Start bot in background daemon thread
+        threading.Thread(target=run_bot, daemon=True).start()
+
+    def trim_memory(self):
+        try:
+            import gc
+            # 1. Bersihkan antrean video agar tidak menyimpan frame mentah di memori
+            while not self.video_queue.empty():
+                try:
+                    self.video_queue.get_nowait()
+                except:
+                    break
+            
+            # 2. Panggil garbage collector
+            gc.collect()
+            
+            # 3. Lepaskan kelebihan working set kembali ke Windows OS
+            import ctypes
+            k32 = ctypes.windll.kernel32
+            k32.GetCurrentProcess.restype = ctypes.c_void_p
+            k32.SetProcessWorkingSetSize.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_size_t]
+            h = k32.GetCurrentProcess()
+            k32.SetProcessWorkingSetSize(h, ctypes.c_size_t(-1).value, ctypes.c_size_t(-1).value)
+        except Exception as e:
+            print(f"[SYSTEM LOG] Gagal memangkas RAM: {e}")
+
+    def sembunyikan_ke_tray(self):
+        self.update_video_active = False # Hentikan rendering video di background
+        self.root.withdraw() # Sembunyikan window utama GUI ke system tray
+        self.trim_memory() # Pangkas working set RAM
+        print("[SYSTEM LOG] Amadeus disembunyikan ke System Tray (Video paused & RAM dipangkas).")
+
+        self.update_video_frame() # Mulai kembali rendering video background
+        print("[SYSTEM LOG] Amadeus GUI dipulihkan.")
+
+    def render_tab_tugas(self):
+        # Configure styles untuk Treeview agar bernuansa dark/cyberpunk
+        style = ttk.Style()
+        style.theme_use("clam")
+        style.configure("Custom.Treeview", 
+                        background="#1a1a1a", 
+                        foreground="white", 
+                        fieldbackground="#1a1a1a", 
+                        rowheight=25,
+                        font=("Consolas", 10))
+        style.map("Custom.Treeview", 
+                  background=[("selected", "#333333")], 
+                  foreground=[("selected", "#00ffcc")])
+        style.configure("Custom.Treeview.Heading", 
+                        background="#2a2a2a", 
+                        foreground="white", 
+                        font=("Consolas", 10, "bold"),
+                        borderwidth=0)
+
+        # Container Frame Kiri (Form Input) dan Kanan (Tabel)
+        main_frame = tk.Frame(self.content_frame, bg="#1a1a1a")
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=15, pady=15)
+
+        # --- SEKTOR KIRI: FORM INPUT ---
+        left_frame = tk.Frame(main_frame, bg="#1a1a1a", width=250)
+        left_frame.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 15))
+        left_frame.pack_propagate(False)
+
+        lbl_form_title = tk.Label(left_frame, text="Tambah Pengingat", font=("Consolas", 11, "bold"), bg="#1a1a1a", fg="#00ffcc")
+        lbl_form_title.pack(anchor="w", pady=(0, 10))
+
+        lbl_waktu = tk.Label(left_frame, text="Waktu (HH:MM / YYYY-MM-DD HH:MM):", font=("Consolas", 9), bg="#1a1a1a", fg="#e0e0e0")
+        lbl_waktu.pack(anchor="w", pady=(5, 2))
+
+        # Default placeholder: waktu sekarang + 10 menit
+        from datetime import datetime, timedelta
+        placeholder_waktu = (datetime.now() + timedelta(minutes=10)).strftime('%H:%M')
+        self.entry_tugas_waktu = tk.Entry(left_frame, bg="#2a2a2a", fg="white", font=("Consolas", 10), insertbackground="white", relief=tk.FLAT)
+        self.entry_tugas_waktu.pack(fill=tk.X, pady=(0, 10))
+        self.entry_tugas_waktu.insert(0, placeholder_waktu)
+
+        lbl_desc = tk.Label(left_frame, text="Deskripsi Tugas / Catatan:", font=("Consolas", 9), bg="#1a1a1a", fg="#e0e0e0")
+        lbl_desc.pack(anchor="w", pady=(5, 2))
+
+        self.entry_tugas_desc = tk.Entry(left_frame, bg="#2a2a2a", fg="white", font=("Consolas", 10), insertbackground="white", relief=tk.FLAT)
+        self.entry_tugas_desc.pack(fill=tk.X, pady=(0, 15))
+
+        lbl_error_tugas = tk.Label(left_frame, text="", font=("Consolas", 8), bg="#1a1a1a", fg="#ff4444", wraplength=230, justify=tk.LEFT)
+        lbl_error_tugas.pack(fill=tk.X, pady=5)
+
+        def simpan_tugas_baru():
+            waktu_val = self.entry_tugas_waktu.get().strip()
+            desc_val = self.entry_tugas_desc.get().strip()
+            
+            if not waktu_val or not desc_val:
+                lbl_error_tugas.config(text="* Waktu dan deskripsi wajib diisi!", fg="#ff4444")
+                return
+                
+            # Validasi format waktu
+            import re
+            is_valid_format = False
+            # Format 1: HH:MM
+            if re.match(r'^\d{2}:\d{2}$', waktu_val):
+                is_valid_format = True
+            # Format 2: YYYY-MM-DD HH:MM
+            elif re.match(r'^\d{4}-\d{2}-\d{2}\s\d{2}:\d{2}$', waktu_val):
+                is_valid_format = True
+                
+            if not is_valid_format:
+                lbl_error_tugas.config(text="* Format salah! Gunakan HH:MM (contoh: 15:30) atau YYYY-MM-DD HH:MM (contoh: 2026-06-15 15:30)", fg="#ff4444")
+                return
+                
+            import core
+            if core.tambah_tugas(waktu_val, desc_val, "desktop"):
+                self.log_history.append(f"[SYSTEM]\nPengingat disimpan: '{desc_val}' pada {waktu_val}.")
+                self.render_tab_tugas() # Re-render tab to update list
+            else:
+                lbl_error_tugas.config(text="* Gagal menyimpan ke database.", fg="#ff4444")
+
+        btn_tambah = tk.Button(left_frame, text="🔔 Tambah Pengingat", font=("Consolas", 9, "bold"),
+                               bg="#115e59", fg="white", activebackground="#14b8a6", activeforeground="white",
+                               relief=tk.FLAT, command=simpan_tugas_baru, pady=8)
+        btn_tambah.pack(fill=tk.X, side=tk.BOTTOM)
+
+        # --- SEKTOR KANAN: TABEL DAFTAR TUGAS ---
+        right_frame = tk.Frame(main_frame, bg="#1a1a1a")
+        right_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+
+        lbl_table_title = tk.Label(right_frame, text="Daftar Pengingat Aktif", font=("Consolas", 11, "bold"), bg="#1a1a1a", fg="white")
+        lbl_table_title.pack(anchor="w", pady=(0, 10))
+
+        # Setup Table columns
+        cols = ("ID", "Waktu", "Deskripsi", "Status", "Sumber")
+        self.tree_tugas = ttk.Treeview(right_frame, columns=cols, show="headings", style="Custom.Treeview")
+        
+        scroll = ttk.Scrollbar(right_frame, orient="vertical", command=self.tree_tugas.yview)
+        self.tree_tugas.configure(yscrollcommand=scroll.set)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        self.tree_tugas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        self.tree_tugas.heading("ID", text="ID")
+        self.tree_tugas.heading("Waktu", text="Waktu")
+        self.tree_tugas.heading("Deskripsi", text="Deskripsi")
+        self.tree_tugas.heading("Status", text="Status")
+        self.tree_tugas.heading("Sumber", text="Sumber")
+
+        self.tree_tugas.column("ID", width=40, minwidth=30, anchor=tk.CENTER)
+        self.tree_tugas.column("Waktu", width=120, minwidth=100, anchor=tk.CENTER)
+        self.tree_tugas.column("Deskripsi", width=180, minwidth=150, anchor=tk.W)
+        self.tree_tugas.column("Status", width=80, minwidth=60, anchor=tk.CENTER)
+        self.tree_tugas.column("Sumber", width=70, minwidth=60, anchor=tk.CENTER)
+
+        self.tree_tugas.tag_configure("aktif", foreground="#00ffcc")
+        self.tree_tugas.tag_configure("selesai", foreground="gray")
+        self.tree_tugas.tag_configure("lewat", foreground="#ff4444")
+
+        # Load data to table
+        import core
+        tugas_list = core.ambil_semua_tugas()
+        for t_id, waktu, desc, status, sumber in tugas_list:
+            self.tree_tugas.insert("", tk.END, values=(t_id, waktu, desc, status.upper(), sumber.upper()), tags=(status,))
+
+        # Control Frame di bawah tabel
+        control_frame = tk.Frame(self.content_frame, bg="#1a1a1a")
+        control_frame.pack(fill=tk.X, side=tk.BOTTOM, padx=15, pady=(0, 15))
+
+        def selesaikan_tugas_terpilih():
+            selected = self.tree_tugas.selection()
+            if not selected: return
+            item_values = self.tree_tugas.item(selected[0], "values")
+            t_id = int(item_values[0])
+            if core.update_status_tugas(t_id, 'selesai'):
+                self.log_history.append(f"[SYSTEM]\nPengingat ID {t_id} selesai.")
+                self.render_tab_tugas()
+
+        def hapus_tugas_terpilih():
+            selected = self.tree_tugas.selection()
+            if not selected: return
+            item_values = self.tree_tugas.item(selected[0], "values")
+            t_id = int(item_values[0])
+            if core.hapus_tugas(t_id):
+                self.log_history.append(f"[SYSTEM]\nPengingat ID {t_id} dihapus.")
+                self.render_tab_tugas()
+
+        btn_selesai = tk.Button(control_frame, text="✓ Selesai", font=("Consolas", 9, "bold"),
+                                bg="#1e293b", fg="white", activebackground="#334155", activeforeground="white",
+                                relief=tk.FLAT, command=selesaikan_tugas_terpilih, padx=10, pady=5)
+        btn_selesai.pack(side=tk.RIGHT, padx=5)
+
+        btn_hapus = tk.Button(control_frame, text="Hapus", font=("Consolas", 9, "bold"),
+                              bg="#501010", fg="white", activebackground="#aa2222", activeforeground="white",
+                              relief=tk.FLAT, command=hapus_tugas_terpilih, padx=10, pady=5)
+        btn_hapus.pack(side=tk.RIGHT, padx=5)
+
+    def periksa_pembaruan_database(self):
+        try:
+            import sqlite3
+            import core
+            conn = sqlite3.connect('amadeus_finansial.db')
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*), MAX(id) FROM transaksi")
+            state = cursor.fetchone()
+            conn.close()
+            
+            if hasattr(self, 'last_db_state') and self.last_db_state != state:
+                self.last_db_state = state
+                saldo_baru = core.hitung_saldo()
+                self.label_saldo.config(text=f"Saldo: Rp {saldo_baru:,}")
+                if self.active_tab == "transaksi":
+                    self.render_tab_transaksi()
+                elif self.active_tab == "visualisasi":
+                    self.render_tab_visualisasi()
+            elif not hasattr(self, 'last_db_state'):
+                self.last_db_state = state
+        except Exception as e:
+            print(f"[SYSTEM LOG] Gagal memeriksa update DB: {e}")
+            
+        self.root.after(2000, self.periksa_pembaruan_database)
+
+    def periksa_pengingat_tugas(self):
+        try:
+            from datetime import datetime
+            import core
+            sekarang = datetime.now()
+            sekarang_str_full = sekarang.strftime('%Y-%m-%d %H:%M')
+            sekarang_str_time = sekarang.strftime('%H:%M')
+
+            tugas_list = core.ambil_semua_tugas()
+            for t_id, waktu, deskripsi, status, sumber in tugas_list:
+                if status == 'aktif':
+                    waktu_cocok = False
+                    if len(waktu) == 16:  # YYYY-MM-DD HH:MM
+                        waktu_cocok = (waktu == sekarang_str_full)
+                    elif len(waktu) == 5:  # HH:MM
+                        waktu_cocok = (waktu == sekarang_str_time)
+                        
+                    if waktu_cocok:
+                        # Tandai status tugas lewat di DB
+                        core.update_status_tugas(t_id, 'lewat')
+                        
+                        # 1. Mainkan suara alert
+                        self.play_specific_voice("CRS_0119.wav")
+                        
+                        # 2. Tampilkan alarm visual di desktop
+                        self.tunjukkan_alarm_desktop(deskripsi, waktu)
+                        
+                        # 3. Kirim notifikasi ke Telegram
+                        panggilan = core.dapatkan_panggilan_user()
+                        panggilan_str = f" {panggilan}" if panggilan else ""
+                        msg = f"⏰ *[PENGINGAT ALARM AMADEUS]*\nHalo{panggilan_str}! Saatnya melakukan:\n👉 *{deskripsi}* (Waktu: {waktu})"
+                        import threading
+                        threading.Thread(target=core.kirim_notifikasi_telegram, args=(msg,), daemon=True).start()
+                        
+                        # Refresh tab tugas jika sedang terbuka
+                        if self.active_tab == "tugas":
+                            self.render_tab_tugas()
+        except Exception as e:
+            print(f"[SYSTEM LOG] Gagal memeriksa pengingat tugas: {e}")
+            
+        self.root.after(15000, self.periksa_pengingat_tugas)
+
+    def tununjukkan_alarm_desktop(self, deskripsi, waktu):
+        # Tampilkan alarm visual di desktop
+        if not self.update_video_active:
+            self.restore_main_window()
+            
+        # Glitch ke pose berpikir
+        if "thinking" in self.sprites:
+            self.trigger_glitch_transition("thinking")
+            
+        panggilan = core.dapatkan_panggilan_user()
+        panggilan_str = f", {panggilan}" if panggilan else ""
+        teks_alert = f"Halo{panggilan_str}! Waktu sudah menunjukkan pukul {waktu}. Saatnya melakukan tugasmu: '{deskripsi}'. Jangan ditunda-tunda ya!"
+        
+        # Tutup menu overlay agar dialog VN terlihat jelas
+        self.tutup_menu_overlay()
+        
+        # Tampilkan teks VN dengan efek ketik
+        self.vn_name.config(text="Amadeus (Alarm)")
+        self.vn_text.config(text="")
+        self.tampilkan_balasan(teks_alert)
 
 if __name__ == "__main__":
     root = tk.Tk()

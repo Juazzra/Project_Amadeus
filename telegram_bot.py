@@ -1,0 +1,322 @@
+import os
+import logging
+import re
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
+from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+import core
+from core import chat_dengan_amadeus, fungsi_setup_database
+
+# Enable logging
+logging.basicConfig(
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
+)
+logger = logging.getLogger(__name__)
+
+# Get Token from Environment
+TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+
+def save_chat_id(chat_id):
+    cfg = core.load_config()
+    if cfg.get("telegram_chat_id") != chat_id:
+        cfg["telegram_chat_id"] = chat_id
+        core.save_config(cfg)
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send a message when the command /start is issued."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    panggilan = core.dapatkan_panggilan_user()
+    if panggilan:
+        welcome_text = (
+            f"Hallo {panggilan}! Aku Amadeus, asisten virtualmu.\n\n"
+            "Gunakan menu berikut untuk mengontrolku:\n"
+            "⚡ /settings - Lihat pengaturan saat ini\n"
+            "🧠 /model - Ganti otak AI\n"
+            "💳 /saldo - Cek saldo finansial\n"
+            "📝 /riwayat - Lihat 5 transaksi terbaru\n"
+            "👤 /memory - Lihat/ubah memori tentangmu"
+        )
+    else:
+        welcome_text = (
+            "Hallo! Aku Amadeus, asisten virtualmu.\n\n"
+            "Gunakan menu berikut untuk mengontrolku:\n"
+            "⚡ /settings - Lihat pengaturan saat ini\n"
+            "🧠 /model - Ganti otak AI\n"
+            "💳 /saldo - Cek saldo finansial\n"
+            "📝 /riwayat - Lihat 5 transaksi terbaru\n"
+            "👤 /memory - Lihat/ubah memori tentangmu"
+        )
+    await update.message.reply_text(welcome_text)
+
+async def set_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Send an inline keyboard to choose the AI model."""
+    keyboard = [
+        [
+            InlineKeyboardButton("Lokal (Ollama)", callback_data="local"),
+            InlineKeyboardButton("Gemini 2.5", callback_data="cloud_2_5"),
+            InlineKeyboardButton("Gemini 3.5", callback_data="cloud_3_5"),
+        ]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    current_mode = core.MODE_AI_AKTIF
+    if current_mode == "local":
+        mode_text = "Lokal (Ollama)"
+    elif current_mode == "cloud_2_5":
+        mode_text = "Gemini 2.5"
+    else:
+        mode_text = "Gemini 3.5"
+        
+    await update.message.reply_text(
+        f"Otak AI Amadeus saat ini: *{mode_text}*\n\nPilih otak AI yang ingin digunakan:",
+        reply_markup=reply_markup,
+        parse_mode="Markdown"
+    )
+
+async def model_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle callback queries from the inline keyboard."""
+    query = update.callback_query
+    await query.answer()
+    
+    selected_mode = query.data
+    # Apply AI mode update to configuration and core
+    core.set_mode_ai(selected_mode)
+    
+    if selected_mode == "local":
+        mode_text = "Lokal (Ollama)"
+    elif selected_mode == "cloud_2_5":
+        mode_text = "Gemini 2.5"
+    else:
+        mode_text = "Gemini 3.5"
+        
+    await query.edit_message_text(
+        text=f"✓ Otak AI Amadeus berhasil diubah ke: *{mode_text}*.",
+        parse_mode="Markdown"
+    )
+
+async def saldo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Display the current financial balance."""
+    saldo = core.hitung_saldo()
+    await update.message.reply_text(f"💳 *Saldo Amadeus saat ini:*\nRp {saldo:,}", parse_mode="Markdown")
+
+async def riwayat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Display the last 5 transactions."""
+    records = core.ambil_riwayat_transaksi()
+    if not records:
+        await update.message.reply_text("Tidak ada riwayat transaksi yang ditemukan.")
+        return
+        
+    lines = ["📝 *5 Transaksi Terakhir:*"]
+    for r_id, tgl, jns, nom, kat, dsk in records[:5]:
+        emoji = "🟢" if jns.lower() == "pemasukan" else "🔴"
+        lines.append(f"{emoji} {tgl[:10]} | {kat} | *Rp {nom:,}* ({dsk})")
+        
+    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+
+async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """View or update user memory."""
+    args = context.args
+    cfg = core.load_config()
+    
+    if not args:
+        current_mem = cfg.get("user_memory", "Kosong")
+        panggilan = core.dapatkan_panggilan_user()
+        await update.message.reply_text(
+            f"👤 *Ingatan Tentang User:*\n{current_mem}\n\n"
+            f"Panggilan terdeteksi: *{panggilan or 'Tidak ada'}*\n\n"
+            f"Untuk memperbarui ingatan, gunakan perintah:\n"
+            f"`/memory <informasi baru>`",
+            parse_mode="Markdown"
+        )
+    else:
+        new_mem = " ".join(args)
+        cfg["user_memory"] = new_mem
+        core.save_config(cfg)
+        
+        # Reset current memory history to apply the new memory instantly
+        core.riwayat_chat.clear()
+        
+        await update.message.reply_text(
+            f"✓ *Ingatan berhasil diperbarui!*\nIngatan baru: {new_mem}\n"
+            f"_Sesi percakapan di-reset agar ingatan baru langsung diterapkan._",
+            parse_mode="Markdown"
+        )
+
+async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Display current configurations."""
+    cfg = core.load_config()
+    mode = cfg.get("ai_mode", "local")
+    speed = cfg.get("typing_speed", 30)
+    user_mem = cfg.get("user_memory", "")
+    
+    if mode == "local":
+        mode_text = "Lokal (Ollama)"
+    elif mode == "cloud_2_5":
+        mode_text = "Gemini 2.5"
+    else:
+        mode_text = "Gemini 3.5"
+        
+    await update.message.reply_text(
+        f"⚙️ *Konfigurasi Sistem Amadeus:*\n\n"
+        f"🧠 *Otak AI:* {mode_text}\n"
+        f"⚡ *Typing Speed (GUI):* {speed} ms/char\n"
+        f"👤 *User Memory:* {user_mem[:100]}...\n\n"
+        f"Gunakan `/model` untuk mengganti mode AI,\n"
+        f"dan `/memory` untuk mengubah ingatan Kurisu tentang Anda.",
+        parse_mode="Markdown"
+    )
+
+async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle the user message and query Amadeus AI."""
+    user_text = update.message.text
+    if not user_text:
+        return
+        
+    # Cache chat ID
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    # Fetch response from Amadeus core
+    reply_text = chat_dengan_amadeus(user_text)
+    
+    # Strip visual VN emotion tags (e.g., [normal], [mad]) for clean Telegram bubble chat
+    reply_text_clean = re.sub(r'\[.*?\]', '', reply_text).strip()
+    
+    await update.message.reply_text(reply_text_clean)
+
+async def tugas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /tugas command to list or add reminders."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    args = context.args
+    if not args:
+        # Tampilkan daftar tugas aktif
+        tugas_list = core.ambil_semua_tugas()
+        aktif_tugas = [t for t in tugas_list if t[3] == 'aktif']
+        
+        panggilan = core.dapatkan_panggilan_user()
+        panggilan_str = f" {panggilan}" if panggilan else ""
+        
+        lines = [f"⏰ *Daftar Pengingat Amadeus Untuk{panggilan_str}:*"]
+        if not aktif_tugas:
+            lines.append("_Belum ada pengingat aktif._")
+        else:
+            for t_id, waktu, deskripsi, status, sumber in aktif_tugas:
+                lines.append(f"• `[{t_id}]` *{waktu}* — {deskripsi} (via {sumber})")
+                
+        lines.append("\n*Cara menambah pengingat baru:*")
+        lines.append("`/tugas <HH:MM> <deskripsi>` (hari ini)")
+        lines.append("`/tugas <YYYY-MM-DD> <HH:MM> <deskripsi>`")
+        lines.append("\n*Contoh:*")
+        lines.append("`/tugas 15:30 Beli Kopi`")
+        lines.append("`/tugas 2026-06-15 15:30 Rapat`")
+        lines.append("\n*Menyelesaikan & menghapus pengingat:*")
+        lines.append("`/tugas_selesai <id>` — Tandai selesai")
+        lines.append("`/tugas_hapus <id>` — Hapus pengingat")
+        
+        await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+        return
+
+    # Parse arguments
+    try:
+        # Check format: YYYY-MM-DD HH:MM
+        if len(args) >= 3 and re.match(r'^\d{4}-\d{2}-\d{2}$', args[0]) and re.match(r'^\d{2}:\d{2}$', args[1]):
+            waktu = f"{args[0]} {args[1]}"
+            deskripsi = " ".join(args[2:])
+        # Check format: HH:MM
+        elif len(args) >= 2 and re.match(r'^\d{2}:\d{2}$', args[0]):
+            waktu = args[0]
+            deskripsi = " ".join(args[1:])
+        else:
+            await update.message.reply_text(
+                "❌ *Format tidak valid!*\n"
+                "Gunakan format:\n"
+                "• `/tugas <HH:MM> <deskripsi>`\n"
+                "• `/tugas <YYYY-MM-DD> <HH:MM> <deskripsi>`",
+                parse_mode="Markdown"
+            )
+            return
+            
+        if core.tambah_tugas(waktu, deskripsi, "telegram"):
+            await update.message.reply_text(
+                f"⏰ *Pengingat berhasil disimpan!*\n"
+                f"• *Waktu:* {waktu}\n"
+                f"• *Deskripsi:* {deskripsi}\n"
+                f"Aku akan mengingatkanmu di PC dan Telegram saat waktunya tiba.",
+                parse_mode="Markdown"
+            )
+        else:
+            await update.message.reply_text("❌ Gagal menyimpan pengingat ke database.")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Terjadi kesalahan: {e}")
+
+async def tugas_selesai_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /tugas_selesai <id> command."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    args = context.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("❌ Format salah. Gunakan: `/tugas_selesai <id_tugas>`", parse_mode="Markdown")
+        return
+        
+    t_id = int(args[0])
+    if core.update_status_tugas(t_id, 'selesai'):
+        await update.message.reply_text(f"✓ Pengingat `[{t_id}]` berhasil ditandai selesai.")
+    else:
+        await update.message.reply_text(f"❌ Gagal memperbarui status pengingat `[{t_id}]`.")
+
+async def tugas_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle /tugas_hapus <id> command."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    args = context.args
+    if not args or not args[0].isdigit():
+        await update.message.reply_text("❌ Format salah. Gunakan: `/tugas_hapus <id_tugas>`", parse_mode="Markdown")
+        return
+        
+    t_id = int(args[0])
+    if core.hapus_tugas(t_id):
+        await update.message.reply_text(f"✓ Pengingat `[{t_id}]` berhasil dihapus.")
+    else:
+        await update.message.reply_text(f"❌ Gagal menghapus pengingat `[{t_id}]`.")
+
+def main() -> None:
+    """Start the bot."""
+    if not TOKEN:
+        print("[ERROR] TELEGRAM_BOT_TOKEN tidak ditemukan di file .env!")
+        return
+
+    # Initialize SQLite database structure if not already present
+    fungsi_setup_database()
+    
+    print("[SYSTEM LOG] Memulai bot Telegram Amadeus...")
+    
+    # Build Telegram App
+    application = Application.builder().token(TOKEN).build()
+
+    # Register commands and callback query handlers
+    application.add_handler(CommandHandler("start", start))
+    application.add_handler(CommandHandler("settings", settings_command))
+    application.add_handler(CommandHandler("model", set_model_command))
+    application.add_handler(CommandHandler("saldo", saldo_command))
+    application.add_handler(CommandHandler("riwayat", riwayat_command))
+    application.add_handler(CommandHandler("memory", memory_command))
+    application.add_handler(CommandHandler("tugas", tugas_command))
+    application.add_handler(CommandHandler("tugas_selesai", tugas_selesai_command))
+    application.add_handler(CommandHandler("tugas_hapus", tugas_hapus_command))
+    
+    # Callback query for model selector button clicks
+    application.add_handler(CallbackQueryHandler(model_callback_handler))
+    
+    # General messages
+    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Run the bot polling
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
+
+if __name__ == "__main__":
+    main()
