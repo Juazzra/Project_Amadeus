@@ -1,3 +1,8 @@
+import os
+# Ubah direktori kerja ke folder tempat skrip ini berada agar aset selalu termuat dengan benar
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+os.chdir(BASE_DIR)
+
 import tkinter as tk
 from tkinter import scrolledtext, ttk, messagebox, filedialog
 import csv
@@ -1604,7 +1609,7 @@ Data Ringkasan Transaksi:
         try:
             import sqlite3
             import core
-            conn = sqlite3.connect('amadeus_finansial.db')
+            conn = sqlite3.connect(os.path.join(core.BASE_DIR, 'amadeus_finansial.db'))
             cursor = conn.cursor()
             cursor.execute("SELECT COUNT(*), MAX(id) FROM transaksi")
             state = cursor.fetchone()

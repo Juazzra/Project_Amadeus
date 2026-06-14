@@ -87,7 +87,7 @@ OLLAMA_MODEL = 'llama3.1'
 
 # --- Fungsi Database (TETAP SAMA) ---
 def fungsi_setup_database():
-    conn = sqlite3.connect('amadeus_finansial.db')
+    conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
     try:
         with conn:
             cursor = conn.cursor()
@@ -123,7 +123,7 @@ def fungsi_setup_database():
         conn.close()
 
 def simpan_ke_database(data):
-    conn = sqlite3.connect('amadeus_finansial.db')
+    conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
     try:
         with conn:
             cursor = conn.cursor()
@@ -137,7 +137,7 @@ def simpan_ke_database(data):
 
 def hitung_saldo():
     try:
-        conn = sqlite3.connect('amadeus_finansial.db')
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
         try:
             with conn:
                 cursor = conn.cursor()
@@ -318,7 +318,7 @@ def chat_dengan_amadeus(pesan_user):
 
 def ambil_riwayat_transaksi():
     try:
-        conn = sqlite3.connect('amadeus_finansial.db')
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
         try:
             with conn:
                 cursor = conn.cursor()
@@ -333,7 +333,7 @@ def ambil_riwayat_transaksi():
 
 def hapus_transaksi(transaksi_id):
     try:
-        conn = sqlite3.connect('amadeus_finansial.db')
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
         try:
             with conn:
                 cursor = conn.cursor()
@@ -347,7 +347,7 @@ def hapus_transaksi(transaksi_id):
 
 def hapus_semua_transaksi():
     try:
-        conn = sqlite3.connect('amadeus_finansial.db')
+        conn = sqlite3.connect(os.path.join(BASE_DIR, 'amadeus_finansial.db'))
         try:
             with conn:
                 cursor = conn.cursor()
