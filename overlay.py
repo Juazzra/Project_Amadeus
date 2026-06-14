@@ -1151,6 +1151,12 @@ class AmadeusVN:
                 saldo_baru = hitung_saldo()
                 self.label_saldo.config(text=f"Saldo: Rp {saldo_baru:,}")
                 
+                # Refresh list tugas atau catatan jika sedang terbuka
+                if self.active_tab == "tugas":
+                    self.render_tab_tugas()
+                elif self.active_tab == "catatan":
+                    self.render_tab_catatan()
+                
                 self.log_history.append(f"[Amadeus]\n{balasan}")
                 self.tampilkan_balasan(balasan)
             

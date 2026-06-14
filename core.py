@@ -172,6 +172,17 @@ FINANCIAL LOGGER MODE:
 If user mentions financial transaction, append valid JSON at END. Nominal must be number > 0.
 Schema: {"jenis":"pengeluaran/pemasukan","nominal":angka,"kategori":"text","deskripsi":"text"}
 DO NOT output JSON if just chatting.
+
+REMINDER/ALARM LOGGER MODE:
+If user asks to set a reminder/alarm/tugas (e.g. "ingatkan aku...", "set alarm...", "buat pengingat..."), append valid JSON at END.
+Waktu format must be HH:MM (24-hour clock, e.g., "15:30") or YYYY-MM-DD HH:MM (e.g., "2026-06-15 15:30"). Refer to the [INFO SISTEM] for the current time.
+Schema: {"tipe":"tugas","waktu":"format_waktu","deskripsi":"deskripsi_tugas"}
+DO NOT output JSON if just chatting.
+
+NOTES LOGGER MODE:
+If user asks to write down a note or save some notes (e.g. "catat ini...", "tulis catatan...", "buat catatan..."), append valid JSON at END.
+Schema: {"tipe":"catatan","judul":"judul_singkat","konten":"isi_catatan"}
+DO NOT output JSON if just chatting.
 """
 
 # ==========================================
@@ -210,8 +221,8 @@ def chat_dengan_amadeus(pesan_user):
     user_mem = cfg.get("user_memory", "")
     mem_prompt = f"\n[INGATAN TENTANG USER: {user_mem}]" if user_mem else ""
     
-    # Menyiapkan System Prompt beserta info saldo real-time dan memori kustom
-    full_prompt = f"{system_prompt}{mem_prompt}\n\n[INFO SISTEM: Saldo user saat ini Rp {saldo_sekarang}]"
+    waktu_sekarang = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    full_prompt = f"{system_prompt}{mem_prompt}\n\n[INFO SISTEM: Saldo user saat ini Rp {saldo_sekarang} | Waktu saat ini: {waktu_sekarang}]"
     
     teks_balasan = ""
 
@@ -287,24 +298,33 @@ def chat_dengan_amadeus(pesan_user):
             # Buang 2 elemen paling lama (1 user, 1 assistant)
             riwayat_chat = riwayat_chat[2:]
             
-        # Logika Ekstraksi JSON Finansial (TETAP SAMA)
+        # Logika Ekstraksi JSON (Finansial, Pengingat/Tugas, & Catatan)
         if "{" in teks_balasan and "}" in teks_balasan:
             awal = teks_balasan.find("{")
             akhir = teks_balasan.rfind("}") + 1
             data_json = teks_balasan[awal:akhir]
             
             try:
-                data_keuangan = json.loads(data_json)
-                # Validasi nominal harus angka positif agar tidak tersimpan transaksi Rp 0
-                if data_keuangan.get('nominal', 0) > 0: 
-                    simpan_ke_database(data_keuangan)
-                    print(f"[SYSTEM LOG] Data tersimpan via mode {MODE_AI_AKTIF.upper()}: {data_keuangan}")
+                payload = json.loads(data_json)
+                if payload.get('tipe') == 'tugas' or ('waktu' in payload and 'deskripsi' in payload):
+                    waktu = payload.get('waktu')
+                    deskripsi = payload.get('deskripsi')
+                    if tambah_tugas(waktu, deskripsi, "chat"):
+                        print(f"[SYSTEM LOG] Tugas tersimpan via AI: {payload}")
+                elif payload.get('tipe') == 'catatan' or ('judul' in payload and 'konten' in payload and payload.get('tipe') == 'catatan'):
+                    judul = payload.get('judul')
+                    konten = payload.get('konten')
+                    if tambah_catatan(judul, konten, "chat"):
+                        print(f"[SYSTEM LOG] Catatan tersimpan via AI: {payload}")
+                elif payload.get('nominal', 0) > 0: 
+                    simpan_ke_database(payload)
+                    print(f"[SYSTEM LOG] Data transaksi tersimpan via mode {MODE_AI_AKTIF.upper()}: {payload}")
             except json.JSONDecodeError:
                 print("[SYSTEM LOG] Gagal menyimpan, JSON tidak valid.")
                 pass 
                 
-            teks_bersih = teks_balasan[:awal].strip()
-            return teks_bersih
+            teks_clean = teks_balasan[:awal].strip()
+            return teks_clean
         
         return teks_balasan
 
