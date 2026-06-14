@@ -35,7 +35,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "🧠 /model - Ganti otak AI\n"
             "💳 /saldo - Cek saldo finansial\n"
             "📝 /riwayat - Lihat 5 transaksi terbaru\n"
-            "👤 /memory - Lihat/ubah memori tentangmu"
+            "👤 /memory - Lihat/ubah memori tentangmu\n\n"
+            "Ketik /help untuk panduan lengkap penggunaan."
         )
     else:
         welcome_text = (
@@ -45,7 +46,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "🧠 /model - Ganti otak AI\n"
             "💳 /saldo - Cek saldo finansial\n"
             "📝 /riwayat - Lihat 5 transaksi terbaru\n"
-            "👤 /memory - Lihat/ubah memori tentangmu"
+            "👤 /memory - Lihat/ubah memori tentangmu\n\n"
+            "Ketik /help untuk panduan lengkap penggunaan."
         )
     await update.message.reply_text(welcome_text)
 
@@ -382,6 +384,41 @@ async def note_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text(f"❌ Gagal menghapus catatan `[{c_id}]`.")
 
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Display bot commands and help info."""
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    panggilan = core.dapatkan_panggilan_user()
+    panggilan_str = f" {panggilan}" if panggilan else ""
+    
+    help_text = (
+        f"📝 *Panduan Asisten Amadeus Untuk{panggilan_str}:*\n\n"
+        "*🤖 PERINTAH BOT TELEGRAM:*\n"
+        "• `/start` — Mulai sesi obrolan\n"
+        "• `/help` — Tampilkan panduan ini\n"
+        "• `/settings` — Cek konfigurasi aktif Amadeus\n"
+        "• `/model` — Pilih otak AI (Lokal/Gemini)\n"
+        "• `/saldo` — Cek saldo keuangan saat ini\n"
+        "• `/riwayat` — Lihat 5 transaksi keuangan terbaru\n"
+        "• `/memory` — Cek memori Kurisu tentangmu\n"
+        "• `/memory <teks>` — Perbarui memori kustom\n"
+        "• `/tugas` — Cek daftar pengingat alarm aktif\n"
+        "• `/tugas <waktu> <deskripsi>` — Tambah pengingat baru\n"
+        "• `/tugas_selesai <id>` — Tandai tugas selesai\n"
+        "• `/tugas_hapus <id>` — Hapus pengingat tugas\n"
+        "• `/note` — Cek daftar catatan aktif\n"
+        "• `/note <judul> | <konten>` — Tambah catatan baru\n"
+        "• `/note_detail <id>` — Baca isi detail catatan\n"
+        "• `/note_hapus <id>` — Hapus catatan dari database\n\n"
+        "*💬 FITUR SINKRONISASI OBROLAN AI:*\n"
+        "Kamu juga bisa mengobrol biasa denganku untuk:\n"
+        "1. *Mencatat Keuangan*: Kirim pesan seperti `\"Beli ramen Rp 35.000\"`.\n"
+        "2. *Mengatur Alarm*: Kirim pesan seperti `\"Ingatkan aku jam 12:00 makan siang\"`.\n"
+        "3. *Menulis Catatan*: Kirim pesan seperti `\"Catat ide ini: membuat mesin waktu\"`.\n"
+    )
+    await update.message.reply_text(help_text, parse_mode="Markdown")
+
 def main() -> None:
     """Start the bot."""
     if not TOKEN:
@@ -409,6 +446,7 @@ def main() -> None:
     application.add_handler(CommandHandler("note", note_command))
     application.add_handler(CommandHandler("note_detail", note_detail_command))
     application.add_handler(CommandHandler("note_hapus", note_hapus_command))
+    application.add_handler(CommandHandler("help", help_command))
     
     # Callback query for model selector button clicks
     application.add_handler(CallbackQueryHandler(model_callback_handler))

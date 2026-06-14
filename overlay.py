@@ -27,7 +27,7 @@ class AmadeusVN:
 
         # Set Windows App Logo Icon
         try:
-            app_logo = Image.open(r"dump req\AmadeusLogo.png")
+            app_logo = Image.open(r"dump req\logos\AmadeusLogo.png")
             self.app_logo_img = ImageTk.PhotoImage(app_logo)
             self.root.iconphoto(False, self.app_logo_img)
         except Exception as e:
@@ -55,8 +55,8 @@ class AmadeusVN:
         self.active_tab = None
 
         # Memuat Video
-        self.cap_intro = cv2.VideoCapture(r"dump req\intro.mp4")
-        self.cap_bg = cv2.VideoCapture(r"dump req\background.mp4")
+        self.cap_intro = cv2.VideoCapture(r"dump req\intro_bg\intro.mp4")
+        self.cap_bg = cv2.VideoCapture(r"dump req\intro_bg\background.mp4")
 
         # Start Video Thread
         self.video_thread = threading.Thread(target=self.run_video_thread, daemon=True)
@@ -80,7 +80,7 @@ class AmadeusVN:
 
         # Play Intro Audio
         try:
-            pygame.mixer.music.load(r"dump req\intro.mp3")
+            pygame.mixer.music.load(r"dump req\intro_bg\intro.mp3")
             pygame.mixer.music.set_volume(self.voice_volume)
             pygame.mixer.music.play()
         except:
@@ -168,17 +168,18 @@ class AmadeusVN:
         # Pool greeting: (file_audio, teks_tampilan)
         greeting_pool = [
             (
-                "CRS_0000n.wav", 
+                "CRS_0000_normal.wav", 
                 f"Selamat pagi, kamu. " + (f"Halo {panggilan}, aku Amadeus. Perlu bantuan laboratorium apa hari ini?" if panggilan else "Halo aku Amadeus, Asisten Laboratorium mu. Perlu apa hari ini?")
             ),
             (
-                "CRS_0130.wav", 
+                "CRS_0130_normal.wav", 
                 f"Ngomong-ngomong, aku belum memperkenalkan diri secara resmi ya. Aku Makise Kurisu. Salam kenal. " + (f"Halo {panggilan}, mari kita mulai hari ini." if panggilan else "Halo, mari kita mulai hari ini.")
             )
         ]
         
         selected_audio, teks_sambutan = random.choice(greeting_pool)
         self.play_specific_voice(selected_audio)
+        self.log_history.append(f"[Amadeus (normal | Voice: {selected_audio})]\n{teks_sambutan}")
 
         self.vn_text = tk.Label(self.vn_frame, text=teks_sambutan, font=("Consolas", 12), bg="#111111", fg="white", justify=tk.LEFT, wraplength=770, anchor="nw")
         self.vn_text.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
@@ -189,13 +190,13 @@ class AmadeusVN:
         # 3. Tombol Logo Vertikal
         self.icon_mic = None
         try:
-            self.icon_out = ImageTk.PhotoImage(Image.open(r"dump req\logout_logo_red.png").resize((30, 30)))
-            self.icon_log = ImageTk.PhotoImage(Image.open(r"dump req\logs_logo.png").resize((30, 30)))
-            self.icon_set = ImageTk.PhotoImage(Image.open(r"dump req\settings_logo.png").resize((30, 30)))
-            self.icon_mic = ImageTk.PhotoImage(Image.open(r"dump req\microphone.png").resize((25, 25)))
-            self.icon_chart = ImageTk.PhotoImage(Image.open(r"dump req\bar-chart.png").resize((30, 30)))
-            self.icon_alarm = ImageTk.PhotoImage(Image.open(r"dump req\circular-alarm-clock-tool.png").resize((30, 30)))
-            self.icon_notes = ImageTk.PhotoImage(Image.open(r"dump req\notes.png").resize((30, 30)))
+            self.icon_out = ImageTk.PhotoImage(Image.open(r"dump req\logos\logout_logo_red.png").resize((30, 30)))
+            self.icon_log = ImageTk.PhotoImage(Image.open(r"dump req\logos\logs_logo.png").resize((30, 30)))
+            self.icon_set = ImageTk.PhotoImage(Image.open(r"dump req\logos\settings_logo.png").resize((30, 30)))
+            self.icon_mic = ImageTk.PhotoImage(Image.open(r"dump req\logos\microphone.png").resize((25, 25)))
+            self.icon_chart = ImageTk.PhotoImage(Image.open(r"dump req\logos\bar-chart.png").resize((30, 30)))
+            self.icon_alarm = ImageTk.PhotoImage(Image.open(r"dump req\logos\circular-alarm-clock-tool.png").resize((30, 30)))
+            self.icon_notes = ImageTk.PhotoImage(Image.open(r"dump req\logos\notes.png").resize((30, 30)))
 
             tk.Button(self.root, image=self.icon_out, bg="#ffffff", bd=0, activebackground="#501010", command=self.keluar_aplikasi).place(x=20, y=20, width=40, height=40)
             tk.Button(self.root, image=self.icon_log, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("log")).place(x=20, y=70, width=40, height=40)
@@ -310,14 +311,14 @@ class AmadeusVN:
         
         # Load logo for system tray icon
         try:
-            self.tray_image = Image.open(r"dump req\AmadeusLogo.png").resize((64, 64))
+            self.tray_image = Image.open(r"dump req\logos\AmadeusLogo.png").resize((64, 64))
         except Exception as e:
             print(f"[SYSTEM LOG] Gagal memuat logo tray: {e}")
             self.tray_image = Image.new("RGBA", (64, 64), (26, 26, 26, 255))
             
         # Definisikan menu klik kanan
         menu = pystray.Menu(
-            item('Tampilkan Amadeus (Restore)', self.tray_restore),
+            item('Tampilkan Amadeus (Restore)', self.tray_restore, default=True),
             item('Sembunyikan Amadeus (Minimize)', self.tray_minimize),
             item('Keluar (Exit)', self.tray_exit)
         )
@@ -987,12 +988,12 @@ class AmadeusVN:
         voice_dir = r"dump req\voice_barks"
         
         voice_pools = {
-            "normal": ["CRS_0141.wav", "CRS_0144.wav", "CRS_0159.wav", "CRS_0242.wav", "CRS_0058.wav", "CRS_0083.wav"],
-            "mad": ["CRS_0158.wav", "CRS_0172.wav", "CRS_0200.wav", "CRS_0133.wav", "CRS_0121.wav"],
-            "smiling": ["CRS_0141.wav", "CRS_0159.wav", "CRS_0242.wav", "CRS_0182.wav", "CRS_0183.wav"],
-            "thinking": ["CRS_0119.wav", "CRS_0185.wav", "CRS_0247.wav", "CRS_0027angry.wav", "CRS_0193.wav", "CRS_0145.wav", "CRS_0036shy.wav"],
-            "look_away": ["CRS_0172.wav", "CRS_0200.wav", "CRS_0207.wav", "CRS_0209.wav", "CRS_0139.wav"],
-            "blushing_tsundere": ["CRS_0158.wav", "CRS_0148.wav", "CRS_0175.wav", "CRS_0207.wav"]
+            "normal": ["CRS_0141_normal.wav", "CRS_0144_normal.wav", "CRS_0159_normal.wav", "CRS_0242_normal.wav", "CRS_0058_normal.wav", "CRS_0083_normal.wav"],
+            "mad": ["CRS_0158_mad.wav", "CRS_0172_mad.wav", "CRS_0200_mad.wav", "CRS_0133_mad.wav", "CRS_0121_mad.wav"],
+            "smiling": ["CRS_0141_normal.wav", "CRS_0159_normal.wav", "CRS_0242_normal.wav", "CRS_0182_smiling.wav", "CRS_0183_smiling.wav"],
+            "thinking": ["CRS_0119_thinking.wav", "CRS_0185_thinking.wav", "CRS_0247_thinking.wav", "CRS_0027_thinking.wav", "CRS_0193_thinking.wav", "CRS_0145_thinking.wav", "CRS_0036_thinking.wav"],
+            "look_away": ["CRS_0172_mad.wav", "CRS_0200_mad.wav", "CRS_0207_look_away.wav", "CRS_0209_look_away.wav", "CRS_0139_look_away.wav"],
+            "blushing_tsundere": ["CRS_0158_mad.wav", "CRS_0148_blushing.wav", "CRS_0175_blushing.wav", "CRS_0207_look_away.wav"]
         }
         
         fallback_files = {
@@ -1005,14 +1006,17 @@ class AmadeusVN:
         }
         
         file_path = None
+        filename_only = None
         if mood in voice_pools:
             selected_file = random.choice(voice_pools[mood])
+            filename_only = selected_file
             full_path = os.path.join(voice_dir, selected_file)
             if os.path.exists(full_path):
                 file_path = full_path
                 
         if not file_path and mood in fallback_files:
             file_path = fallback_files[mood]
+            filename_only = os.path.basename(file_path)
             
         if file_path and os.path.exists(file_path):
             try:
@@ -1025,8 +1029,10 @@ class AmadeusVN:
                     self.sound_cache[file_path] = voice_sound
                 voice_sound.set_volume(self.voice_volume)
                 voice_sound.play()
+                return filename_only
             except Exception as e:
                 print(f"[SYSTEM LOG] Gagal memutar suara Kurisu ({mood}): {e}")
+        return None
  
     def play_specific_voice(self, filename):
         import os
@@ -1043,8 +1049,10 @@ class AmadeusVN:
                     self.sound_cache[file_path] = voice_sound
                 voice_sound.set_volume(self.voice_volume)
                 voice_sound.play()
+                return filename
             except Exception as e:
                 print(f"[SYSTEM LOG] Gagal memutar suara spesifik ({filename}): {e}")
+        return None
 
     def generate_glitch_frame(self, original_image):
         import random
@@ -1081,9 +1089,9 @@ class AmadeusVN:
         self.get_sprite(target_mood)
         
         if target_mood not in self.pil_sprites:
-            return
+            return None
             
-        self.play_voice_sfx(target_mood)
+        played_voice = self.play_voice_sfx(target_mood)
         
         if target_mood != self.current_mood:
             self.current_mood = target_mood
@@ -1108,6 +1116,8 @@ class AmadeusVN:
             self.root.after(70, step2)
         else:
             self.canvas.itemconfig(self.sprite_on_canvas, image=self.sprites[target_mood])
+            
+        return played_voice
 
     def proses_pesan_ai(self, pesan_user):
         mode_aktif = core.MODE_AI_AKTIF
@@ -1144,8 +1154,9 @@ class AmadeusVN:
             
             # 4. Fungsi Eksekusi UI Sukses (lempar ke main thread)
             def update_ui_sukses():
+                played_voice = None
                 if mood_terdeteksi in self.sprites:
-                    self.trigger_glitch_transition(mood_terdeteksi)
+                    played_voice = self.trigger_glitch_transition(mood_terdeteksi)
                 
                 # Refresh angka saldo di layar
                 saldo_baru = hitung_saldo()
@@ -1157,7 +1168,8 @@ class AmadeusVN:
                 elif self.active_tab == "catatan":
                     self.render_tab_catatan()
                 
-                self.log_history.append(f"[Amadeus]\n{balasan}")
+                voice_str = f" | Voice: {played_voice}" if played_voice else ""
+                self.log_history.append(f"[Amadeus ({mood_terdeteksi}{voice_str})]\n{balasan}")
                 self.tampilkan_balasan(balasan)
             
             self.root.after(0, update_ui_sukses)
@@ -1394,9 +1406,11 @@ Data Ringkasan Transaksi:
             
             # UI update sukses
             def update_ui_sukses():
+                played_voice = None
                 if mood_terdeteksi in self.sprites:
-                    self.trigger_glitch_transition(mood_terdeteksi)
-                self.log_history.append(f"[Amadeus (Analisis Finansial)]\n{balasan}")
+                    played_voice = self.trigger_glitch_transition(mood_terdeteksi)
+                voice_str = f" | Voice: {played_voice}" if played_voice else ""
+                self.log_history.append(f"[Amadeus (Analisis Finansial) ({mood_terdeteksi}{voice_str})]\n{balasan}")
                 self.tampilkan_balasan(balasan)
             
             self.root.after(0, update_ui_sukses)
@@ -1454,6 +1468,11 @@ Data Ringkasan Transaksi:
         self.trim_memory() # Pangkas working set RAM
         print("[SYSTEM LOG] Amadeus disembunyikan ke System Tray (Video paused & RAM dipangkas).")
 
+    def restore_main_window(self):
+        self.update_video_active = True
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
         self.update_video_frame() # Mulai kembali rendering video background
         print("[SYSTEM LOG] Amadeus GUI dipulihkan.")
 
@@ -1658,7 +1677,7 @@ Data Ringkasan Transaksi:
                         core.update_status_tugas(t_id, 'lewat')
                         
                         # 1. Mainkan suara alert
-                        self.play_specific_voice("CRS_0119.wav")
+                        self.play_specific_voice("CRS_0119_thinking.wav")
                         
                         # 2. Tampilkan alarm visual di desktop
                         self.tunjukkan_alarm_desktop(deskripsi, waktu)
@@ -1678,7 +1697,7 @@ Data Ringkasan Transaksi:
             
         self.root.after(15000, self.periksa_pengingat_tugas)
 
-    def tununjukkan_alarm_desktop(self, deskripsi, waktu):
+    def tunjukkan_alarm_desktop(self, deskripsi, waktu):
         # Tampilkan alarm visual di desktop
         if not self.update_video_active:
             self.restore_main_window()

@@ -106,6 +106,7 @@ python terminal.py
 
 Hubungi bot Telegram-mu dan gunakan perintah-perintah berikut:
 * `/start` — Menampilkan pesan sambutan dan ringkasan menu asisten.
+* `/help` — Menampilkan panduan lengkap perintah bot dan panduan sinkronisasi obrolan AI.
 * `/settings` — Melihat pengaturan aktif (mode AI, memori, typing speed).
 * `/model` — Mengganti otak AI (Lokal, Gemini 2.5, Gemini 3.5) via tombol keyboard inline.
 * `/saldo` — Mengecek sisa saldo keuangan saat ini di database SQLite.
