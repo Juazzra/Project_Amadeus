@@ -93,7 +93,7 @@ ALLOWED_TELEGRAM_USER_IDS=isi_user_id_telegram_kamu_di_sini (pisahkan dengan kom
 ### Running Mode GUI (Visual Novel + Telegram Bot)
 Jalankan file visual utama untuk masuk ke mode Visual Novel dengan intro Steins;Gate. **Bot Telegram akan berjalan secara otomatis di latar belakang thread:**
 ```bash
-python overlay.py
+python src/overlay.py
 ```
 
 ### Running Secara Silent/Latar Belakang di Windows (Startup)
@@ -106,7 +106,7 @@ run_amadeus.vbs
 ### Running Mode Terminal (CLI)
 Jalankan versi terminal ringan jika hanya ingin mengobrol lewat command-line:
 ```bash
-python terminal.py
+python src/terminal.py
 ```
 
 ---

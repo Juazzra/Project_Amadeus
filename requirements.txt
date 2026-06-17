@@ -1,0 +1,11 @@
+google-genai
+ollama
+pillow
+opencv-python
+pygame
+SpeechRecognition
+pyaudio
+python-telegram-bot
+matplotlib
+pystray
+soundfile
