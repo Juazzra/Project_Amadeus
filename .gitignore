@@ -12,6 +12,8 @@ ENV/
 env/
 
 # Databases & User Data
+data/
+backups/
 *.db
 *.sqlite
 *.sqlite3

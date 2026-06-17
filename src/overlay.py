@@ -52,6 +52,7 @@ class AmadeusVN:
         cfg = load_config()
         self.typing_speed = cfg.get("typing_speed", 30)
         self.voice_volume = cfg.get("voice_volume", 70) / 100.0
+        self.sync_telegram_response = cfg.get("sync_telegram_response", False)
         self.is_typing = False
         self.type_timer = None
         self.sprites = {} # Dictionary penyimpan memori wajah
@@ -59,6 +60,8 @@ class AmadeusVN:
         self.current_mood = "normal" # Menyimpan mood aktif saat ini
         self.overlay_panel = None
         self.active_tab = None
+        self.mini_window = None
+        self.bubble_timer = None
 
         # Memuat Video
         self.cap_intro = cv2.VideoCapture(r"dump req\intro_bg\intro.mp4")
@@ -79,6 +82,7 @@ class AmadeusVN:
         self.current_text_to_type = ""
         self.char_index = 0
         self.log_history = []
+        self.telegram_log_queue = queue.Queue()
 
         # Tombol Skip Intro
         self.btn_skip = tk.Button(self.root, text="Skip Intro >>", font=("Consolas", 10, "bold"), bg="#111111", fg="white", relief=tk.FLAT, command=self.skip_intro)
@@ -206,7 +210,7 @@ class AmadeusVN:
         import random
         selected_audio, teks_sambutan = random.choice(welcome_options)
         self.play_specific_voice(selected_audio)
-        self.log_history.append(f"[Amadeus (normal | Voice: {selected_audio})]\n{teks_sambutan}")
+        self.tambah_log(f"[Amadeus (normal | Voice: {selected_audio})]\n{teks_sambutan}")
 
         self.vn_text = tk.Label(self.vn_frame, text=teks_sambutan, font=("Consolas", 12), bg="#111111", fg="white", justify=tk.LEFT, wraplength=770, anchor="nw")
         self.vn_text.pack(fill=tk.BOTH, expand=True, padx=15, pady=(5, 10))
@@ -224,6 +228,7 @@ class AmadeusVN:
             self.icon_chart = ImageTk.PhotoImage(Image.open(r"dump req\logos\bar-chart.png").resize((30, 30)))
             self.icon_alarm = ImageTk.PhotoImage(Image.open(r"dump req\logos\circular-alarm-clock-tool.png").resize((30, 30)))
             self.icon_notes = ImageTk.PhotoImage(Image.open(r"dump req\logos\notes.png").resize((30, 30)))
+            self.icon_collapse = ImageTk.PhotoImage(Image.open(r"dump req\logos\collapse.png").resize((30, 30)))
 
             tk.Button(self.root, image=self.icon_out, bg="#ffffff", bd=0, activebackground="#501010", command=self.keluar_aplikasi).place(x=20, y=20, width=40, height=40)
             tk.Button(self.root, image=self.icon_log, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("log")).place(x=20, y=70, width=40, height=40)
@@ -231,6 +236,7 @@ class AmadeusVN:
             tk.Button(self.root, image=self.icon_chart, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("visualisasi")).place(x=20, y=170, width=40, height=40)
             tk.Button(self.root, image=self.icon_alarm, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("tugas")).place(x=20, y=220, width=40, height=40)
             tk.Button(self.root, image=self.icon_notes, bg="#ffffff", bd=0, activebackground="#333", command=lambda: self.tampilkan_menu_overlay("catatan")).place(x=20, y=270, width=40, height=40)
+            tk.Button(self.root, image=self.icon_collapse, bg="#ffffff", bd=0, activebackground="#333", command=self.masuk_mode_mini).place(x=20, y=320, width=40, height=40)
         except Exception as e:
             print(f"Gagal memuat ikon: {e}")
 
@@ -266,6 +272,7 @@ class AmadeusVN:
         # Start background check loops
         self.periksa_pembaruan_database()
         self.periksa_pengingat_tugas()
+        self.periksa_log_telegram()
 
     def hapus_placeholder(self, event):
         if self.entry_input.get() == self.placeholder_text:
@@ -382,6 +389,18 @@ class AmadeusVN:
     def tampilkan_balasan(self, teks):
         teks = teks.strip()
         
+        # Batalkan timer auto-advance mini mode jika ada
+        if hasattr(self, 'mini_auto_timer') and self.mini_auto_timer:
+            try:
+                self.root.after_cancel(self.mini_auto_timer)
+            except:
+                pass
+            self.mini_auto_timer = None
+            
+        # Jika sedang di Mini Mode, tunjukkan balon teks melayang (persiapan wadah layout)
+        if hasattr(self, 'mini_window') and self.mini_window and self.mini_window.winfo_exists():
+            self.tunjukkan_bubble_mini_layout()
+            
         # Memecah teks menjadi halaman-halaman (chunks) yang pas di kotak dialog.
         # Kotak dialog muat sekitar 3-4 baris. Font Consolas 12 dengan wraplength 770
         # muat sekitar 90 karakter per baris. Jadi maksimum ~250 karakter per chunk.
@@ -453,12 +472,46 @@ class AmadeusVN:
         if self.char_index <= len(self.current_text_to_type):
             teks_sementara = self.current_text_to_type[:self.char_index]
             self.vn_text.config(text=teks_sementara)
+            
+            # --- JIKA SEDANG DI MINI MODE, UPDATE JUGA DI MINI BUBBLE ---
+            if hasattr(self, 'mini_window') and self.mini_window and self.mini_window.winfo_exists():
+                self.mini_bubble_label.config(text=teks_sementara)
+                
             self.char_index += 1
             self.type_timer = self.root.after(self.typing_speed, self.ketik_animasi)
         else:
             self.is_typing = False
+            # Selesai mengetik chunk aktif
             if self.current_chunk < len(self.text_chunks) - 1:
                 self.vn_text.config(text=self.current_text_to_type + " ▼")
+                
+                # --- AUTO ADVANCE DI MINI MODE SETELAH 3 DETIK ---
+                if hasattr(self, 'mini_window') and self.mini_window and self.mini_window.winfo_exists():
+                    self.mini_bubble_label.config(text=self.current_text_to_type)
+                    
+                    if hasattr(self, 'mini_auto_timer') and self.mini_auto_timer:
+                        try:
+                            self.root.after_cancel(self.mini_auto_timer)
+                        except:
+                            pass
+                    self.mini_auto_timer = self.root.after(3000, self.mini_lanjutkan_dialog_otomatis)
+            else:
+                # Ini adalah chunk terakhir
+                if hasattr(self, 'mini_window') and self.mini_window and self.mini_window.winfo_exists():
+                    self.mini_bubble_label.config(text=self.current_text_to_type)
+                    
+                    if hasattr(self, 'bubble_timer') and self.bubble_timer:
+                        try:
+                            self.root.after_cancel(self.bubble_timer)
+                        except:
+                            pass
+                    
+                    def sembunyikan():
+                        try:
+                            self.mini_canvas.delete("bubble_win")
+                        except:
+                            pass
+                    self.bubble_timer = self.root.after(6000, sembunyikan)
 
     def lanjutkan_dialog(self, event=None):
         if event and event.keysym == 'space' and self.root.focus_get() == self.entry_input:
@@ -765,6 +818,11 @@ class AmadeusVN:
         else:
             self.canvas.itemconfig(self.sprite_on_canvas, image=self.sprites[target_mood])
             
+        # Update sprite mini jika sedang dalam Mini Mode
+        if hasattr(self, 'mini_window') and self.mini_window and self.mini_window.winfo_exists():
+            sprite_mini_img = self.dapatkan_sprite_mini(target_mood)
+            self.mini_canvas.itemconfig(self.mini_sprite_on_canvas, image=sprite_mini_img)
+            
         return played_voice
 
     def proses_pesan_ai(self, pesan_user):
@@ -822,7 +880,7 @@ class AmadeusVN:
                     self.txt_memory.insert(tk.END, current_mem)
                 
                 voice_str = f" | Voice: {played_voice}" if played_voice else ""
-                self.log_history.append(f"[Amadeus ({mood_terdeteksi}{voice_str})]\n{balasan}")
+                self.tambah_log(f"[Amadeus ({mood_terdeteksi}{voice_str})]\n{balasan}")
                 self.tampilkan_balasan(balasan)
             
             self.root.after(0, update_ui_sukses)
@@ -854,7 +912,7 @@ class AmadeusVN:
         
         self.entry_input.delete(0, tk.END)
         self.entry_input.config(fg="white")
-        self.log_history.append(f"[Kamu]\n{pesan}")
+        self.tambah_log(f"[Kamu]\n{pesan}")
         threading.Thread(target=self.proses_pesan_ai, args=(pesan,), daemon=True).start()
 
     def mulai_input_suara(self):
@@ -919,7 +977,7 @@ class AmadeusVN:
             
             if error_occurred:
                 self.vn_text.config(text=f"[Gagal mendengarkan] {error_msg}")
-                self.log_history.append(f"[SYSTEM]\nPerekaman suara gagal: {error_msg}")
+                self.tambah_log(f"[SYSTEM]\nPerekaman suara gagal: {error_msg}")
             else:
                 # Masukkan hasil transkripsi ke input box
                 self.entry_input.delete(0, tk.END)
@@ -954,7 +1012,7 @@ class AmadeusVN:
                 writer.writerows(records)
             
             messagebox.showinfo("Sukses", f"Riwayat transaksi berhasil diekspor ke:\n{file_path}")
-            self.log_history.append(f"[SYSTEM]\nRiwayat transaksi diekspor ke {file_path}")
+            self.tambah_log(f"[SYSTEM]\nRiwayat transaksi diekspor ke {file_path}")
         except Exception as e:
             messagebox.showerror("Error", f"Gagal mengekspor data:\n{e}")
 
@@ -968,7 +1026,7 @@ class AmadeusVN:
             
         if hapus_semua_transaksi():
             messagebox.showinfo("Sukses", "Semua riwayat transaksi berhasil dihapus.")
-            self.log_history.append("[SYSTEM]\nSemua riwayat transaksi dibersihkan.")
+            self.tambah_log("[SYSTEM]\nSemua riwayat transaksi dibersihkan.")
             
             # Update saldo HUD di main UI
             self.label_saldo.config(text=f"Saldo: Rp 0")
@@ -1064,7 +1122,7 @@ Data Ringkasan Transaksi:
                 if mood_terdeteksi in ["normal", "mad", "smiling", "thinking", "look_away", "blushing_tsundere"]:
                     played_voice = self.trigger_glitch_transition(mood_terdeteksi)
                 voice_str = f" | Voice: {played_voice}" if played_voice else ""
-                self.log_history.append(f"[Amadeus (Analisis Finansial) ({mood_terdeteksi}{voice_str})]\n{balasan}")
+                self.tambah_log(f"[Amadeus (Analisis Finansial) ({mood_terdeteksi}{voice_str})]\n{balasan}")
                 self.tampilkan_balasan(balasan)
             
             self.root.after(0, update_ui_sukses)
@@ -1086,6 +1144,7 @@ Data Ringkasan Transaksi:
         import threading
         def run_bot():
             import telegram_bot
+            telegram_bot.log_queue = self.telegram_log_queue
             try:
                 telegram_bot.main()
             except Exception as e:
@@ -1131,27 +1190,226 @@ Data Ringkasan Transaksi:
         self.update_video_frame() # Mulai kembali rendering video background
         print("[SYSTEM LOG] Amadeus GUI dipulihkan.")
 
+    def dapatkan_sprite_mini(self, mood):
+        if not hasattr(self, 'mini_sprites'):
+            self.mini_sprites = {}
+            self.mini_pil_sprites = {}
+            
+        if mood in self.mini_sprites:
+            return self.mini_sprites[mood]
+            
+        self.get_sprite(mood)
+        if mood in self.pil_sprites:
+            try:
+                # Resize sprite Kurisu untuk mempertahankan rasio asli (852x1411 -> 181x300)
+                img_resized = self.pil_sprites[mood].resize((181, 300))
+                self.mini_pil_sprites[mood] = img_resized
+                self.mini_sprites[mood] = ImageTk.PhotoImage(img_resized)
+                return self.mini_sprites[mood]
+            except Exception as e:
+                print(f"[SYSTEM LOG] Gagal membuat mini sprite {mood}: {e}")
+                
+        return self.get_sprite("normal")
+
+    def masuk_mode_mini(self):
+        self.tutup_menu_overlay()
+        self.root.withdraw()
+        
+        self.mini_window = tk.Toplevel(self.root)
+        self.mini_window.title("Amadeus VN - Mini")
+        self.mini_window.overrideredirect(True)
+        self.mini_window.attributes("-topmost", True)
+        self.mini_window.config(bg="#111111")
+        
+        try:
+            self.mini_window.attributes("-alpha", 0.95)
+        except:
+            pass
+            
+        # Spawn di kiri atas layar (20px margin)
+        self.mini_window.geometry("200x300+20+20")
+        
+        self.mini_canvas = tk.Canvas(self.mini_window, width=200, height=300, bg="#111111", highlightthickness=0)
+        self.mini_canvas.pack(fill=tk.BOTH, expand=True)
+        
+        sprite_mini_img = self.dapatkan_sprite_mini(self.current_mood)
+        self.mini_sprite_on_canvas = self.mini_canvas.create_image(100, 300, anchor=tk.S, image=sprite_mini_img)
+        
+        self.mini_bubble_frame = tk.Frame(self.mini_canvas, bg="#222222", bd=1, relief=tk.SOLID)
+        self.mini_bubble_label = tk.Label(self.mini_bubble_frame, text="", font=("Consolas", 8), bg="#222222", fg="#00ffcc", wraplength=160, justify=tk.LEFT)
+        self.mini_bubble_label.pack(padx=5, pady=5)
+        
+        # Jendela Menu Klik Kanan (Context Menu) - True Borderless
+        self.context_menu = tk.Menu(self.mini_window, tearoff=0, bg="#222222", fg="white", activebackground="#00ffcc", activeforeground="black", font=("Consolas", 10))
+        self.context_menu.add_command(label="Back to Overlay", command=self.kembali_ke_mode_utama)
+        self.context_menu.add_separator()
+        self.context_menu.add_command(label="Close Amadeus", command=self.keluar_aplikasi)
+        
+        def show_context_menu(event):
+            self.context_menu.post(event.x_root, event.y_root)
+            
+        self.mini_canvas.bind("<Button-3>", show_context_menu)
+        self.mini_bubble_frame.bind("<Button-3>", show_context_menu)
+        self.mini_bubble_label.bind("<Button-3>", show_context_menu)
+        
+        def start_drag(event):
+            self.mini_window.drag_start_x = event.x_root - self.mini_window.winfo_x()
+            self.mini_window.drag_start_y = event.y_root - self.mini_window.winfo_y()
+            
+        def drag(event):
+            x = event.x_root - self.mini_window.drag_start_x
+            y = event.y_root - self.mini_window.drag_start_y
+            self.mini_window.geometry(f"+{x}+{y}")
+            
+        self.mini_canvas.bind("<Button-1>", start_drag)
+        self.mini_canvas.bind("<B1-Motion>", drag)
+        self.mini_canvas.bind("<Double-Button-1>", lambda e: self.kembali_ke_mode_utama())
+        
+        self.mini_bubble_frame.bind("<Button-1>", start_drag)
+        self.mini_bubble_frame.bind("<B1-Motion>", drag)
+        self.mini_bubble_frame.bind("<Double-Button-1>", lambda e: self.kembali_ke_mode_utama())
+        
+        self.mini_bubble_label.bind("<Button-1>", start_drag)
+        self.mini_bubble_label.bind("<B1-Motion>", drag)
+        self.mini_bubble_label.bind("<Double-Button-1>", lambda e: self.kembali_ke_mode_utama())
+
+        self.update_video_active = False
+
+    def kembali_ke_mode_utama(self):
+        if hasattr(self, 'mini_auto_timer') and self.mini_auto_timer:
+            try:
+                self.root.after_cancel(self.mini_auto_timer)
+            except:
+                pass
+            self.mini_auto_timer = None
+
+        if hasattr(self, 'mini_window') and self.mini_window:
+            try:
+                self.mini_window.destroy()
+            except:
+                pass
+            self.mini_window = None
+            
+        self.update_video_active = True
+        self.root.deiconify()
+        self.root.lift()
+        self.root.focus_force()
+        self.update_video_frame()
+
+    def tunjukkan_bubble_mini_layout(self):
+        self.mini_bubble_label.config(text="")
+        
+        # Posisikan bubble chat di bagian bawah agar tidak menghalangi wajah Kurisu
+        self.mini_canvas.create_window(100, 290, anchor=tk.S, window=self.mini_bubble_frame, tags="bubble_win")
+        
+        if hasattr(self, 'bubble_timer') and self.bubble_timer:
+            try:
+                self.root.after_cancel(self.bubble_timer)
+            except:
+                pass
+            self.bubble_timer = None
+
+    def mini_lanjutkan_dialog_otomatis(self):
+        if hasattr(self, 'mini_window') and self.mini_window and self.mini_window.winfo_exists():
+            if self.current_chunk < len(self.text_chunks) - 1:
+                self.current_chunk += 1
+                self.mulai_ketik_chunk()
+
+    def tambah_log(self, teks_log):
+        self.log_history.append(teks_log)
+        if self.active_tab == "log" and hasattr(self, 'log_area'):
+            try:
+                if self.log_area.winfo_exists():
+                    self.log_area.config(state=tk.NORMAL)
+                    self.log_area.insert(tk.END, teks_log + "\n\n")
+                    self.log_area.config(state=tk.DISABLED)
+                    self.log_area.see(tk.END)
+            except Exception as e:
+                pass
+
+    def tanggapi_chat_telegram(self, reply_text, mood):
+        # 1. Update nama pembicara di kotak dialog
+        self.vn_name.config(text="Amadeus (Telegram)")
+        
+        # 2. Trigger transisi wajah dan putar suara bark
+        self.trigger_glitch_transition(mood)
+        
+        # 3. Tampilkan teks balasan dengan efek ketik
+        self.tampilkan_balasan(reply_text)
+
+    def periksa_log_telegram(self):
+        try:
+            while not self.telegram_log_queue.empty():
+                log_event = self.telegram_log_queue.get_nowait()
+                if isinstance(log_event, dict) and log_event.get("type") == "telegram_chat":
+                    user_text = log_event.get("user_text", "")
+                    reply_text = log_event.get("reply_text", "")
+                    mood = log_event.get("mood", "normal")
+                    is_voice = log_event.get("is_voice", False)
+                    
+                    label_kamu = "[Telegram - Kamu (Pesan Suara)]" if is_voice else "[Telegram - Kamu]"
+                    
+                    # Tambah log ke riwayat
+                    self.tambah_log(f"{label_kamu}\n{user_text}")
+                    self.tambah_log(f"[Telegram - Amadeus ({mood})]\n{reply_text}")
+                    
+                    # Jika toggle aktif dan UI aktif, tanggapi secara visual
+                    if getattr(self, "sync_telegram_response", False) and self.ui_aktif:
+                        self.tanggapi_chat_telegram(reply_text, mood)
+                else:
+                    # Fallback jika string mentah log
+                    self.tambah_log(str(log_event))
+        except Exception as e:
+            print(f"[SYSTEM LOG] Gagal membaca antrean log Telegram: {e}")
+            
+        self.root.after(1000, self.periksa_log_telegram)
+
     def render_tab_tugas(self):
         render_tab_tugas(self)
 
     def periksa_pembaruan_database(self):
         try:
             import sqlite3
-            import core
-            conn = sqlite3.connect(os.path.join(core.BASE_DIR, 'amadeus_finansial.db'))
+            conn = core.dapatkan_koneksi_db()
             cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*), MAX(id) FROM transaksi")
-            state = cursor.fetchone()
+            
+            # Periksa tabel transaksi
+            cursor.execute("SELECT COUNT(*), MAX(id), SUM(nominal) FROM transaksi")
+            transaksi_state = cursor.fetchone()
+            
+            # Periksa tabel tugas
+            cursor.execute("SELECT COUNT(*), MAX(id) FROM tugas")
+            tugas_state = cursor.fetchone()
+            
+            # Periksa tabel catatan
+            cursor.execute("SELECT COUNT(*), MAX(id) FROM catatan")
+            catatan_state = cursor.fetchone()
+            
+            state = (transaksi_state, tugas_state, catatan_state)
             conn.close()
             
             if hasattr(self, 'last_db_state') and self.last_db_state != state:
+                old_transaksi_state, old_tugas_state, old_catatan_state = self.last_db_state
                 self.last_db_state = state
-                saldo_baru = core.hitung_saldo()
-                self.label_saldo.config(text=f"Saldo: Rp {saldo_baru:,}")
-                if self.active_tab == "transaksi":
-                    self.render_tab_transaksi()
-                elif self.active_tab == "visualisasi":
-                    self.render_tab_visualisasi()
+                
+                # Jika transaksi berubah, refresh saldo dan visualisasi
+                if old_transaksi_state != transaksi_state:
+                    saldo_baru = core.hitung_saldo()
+                    self.label_saldo.config(text=f"Saldo: Rp {saldo_baru:,}")
+                    if self.active_tab == "transaksi":
+                        self.render_tab_transaksi()
+                    elif self.active_tab == "visualisasi":
+                        self.render_tab_visualisasi()
+                        
+                # Jika tugas berubah, refresh tab tugas
+                if old_tugas_state != tugas_state:
+                    if self.active_tab == "tugas":
+                        self.render_tab_tugas()
+                        
+                # Jika catatan berubah, refresh tab catatan
+                if old_catatan_state != catatan_state:
+                    if self.active_tab == "catatan":
+                        self.render_tab_catatan()
             elif not hasattr(self, 'last_db_state'):
                 self.last_db_state = state
         except Exception as e:

@@ -7,6 +7,9 @@ from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQu
 import core
 from core import chat_dengan_amadeus, fungsi_setup_database
 
+# Thread-safe queue for logging to GUI (populated by overlay.py)
+log_queue = None
+
 # Enable logging
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
@@ -138,6 +141,43 @@ async def model_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         parse_mode="Markdown"
     )
 
+def get_rate_keyboard(row_id):
+    if row_id is None:
+        return None
+    keyboard = [
+        [
+            InlineKeyboardButton("⭐ Emas", callback_data=f"rate_lora:{row_id}:gold"),
+            InlineKeyboardButton("👍 Kurisu", callback_data=f"rate_lora:{row_id}:good"),
+            InlineKeyboardButton("😐 Biasa", callback_data=f"rate_lora:{row_id}:neutral"),
+            InlineKeyboardButton("👎 OOC", callback_data=f"rate_lora:{row_id}:bad")
+        ]
+    ]
+    return InlineKeyboardMarkup(keyboard)
+
+@restricted
+async def rate_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle rating clicks for dataset lora."""
+    query = update.callback_query
+    await query.answer()
+    
+    parts = query.data.split(":")
+    if len(parts) == 3:
+        row_id = int(parts[1])
+        rating = parts[2]
+        
+        success = core.update_rating_dataset(row_id, rating)
+        if success:
+            rating_map = {
+                "gold": "⭐ Dataset Emas (Gold)",
+                "good": "👍 Kurisu Banget (Good)",
+                "neutral": "😐 Biasa Aja (Neutral)",
+                "bad": "👎 Out of Character (Bad)"
+            }
+            rating_text = rating_map.get(rating, rating)
+            text = query.message.text or ""
+            new_text = f"{text}\n\n[Penilaian: {rating_text}]"
+            await query.edit_message_text(text=new_text, reply_markup=None)
+
 @restricted
 async def saldo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display the current financial balance."""
@@ -226,12 +266,25 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
         save_chat_id(update.effective_chat.id)
         
     # Fetch response from Amadeus core
-    reply_text = chat_dengan_amadeus(user_text)
+    reply_text, row_id = chat_dengan_amadeus(user_text, sumber="telegram", return_id=True)
+    
+    # Extract mood tag if any
+    mood_match = re.search(r'\[([a-zA-Z0-9_\s\-]+)\]', reply_text)
+    mood = mood_match.group(1).lower().strip() if mood_match else "normal"
     
     # Strip visual VN emotion tags (e.g., [normal], [mad]) for clean Telegram bubble chat
     reply_text_clean = re.sub(r'\[.*?\]', '', reply_text).strip()
     
-    await update.message.reply_text(reply_text_clean)
+    # Log structured interaction to GUI
+    if log_queue is not None:
+        log_queue.put({
+            "type": "telegram_chat",
+            "user_text": user_text,
+            "reply_text": reply_text_clean,
+            "mood": mood
+        })
+        
+    await update.message.reply_text(reply_text_clean, reply_markup=get_rate_keyboard(row_id))
 
 @restricted
 async def tugas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -539,14 +592,29 @@ async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             return
             
         # 4. Update status pesan transkripsi di chat
-        await status_msg.edit_text(f"🗣️ *Anda:* _{recognized_text}_\n\n⌛ _Memproses balasan..._", parse_mode="Markdown")
+        await status_msg.edit_text(f"🗣️ *Anda:* _{recognized_text}_\n\n👩‍🦰 _Memproses balasan..._", parse_mode="Markdown")
         
         # 5. Kirim teks hasil transkripsi ke AI Amadeus
-        reply_text = chat_dengan_amadeus(recognized_text)
+        reply_text, row_id = chat_dengan_amadeus(recognized_text, sumber="telegram", return_id=True)
+        
+        # Extract mood tag if any
+        mood_match = re.search(r'\[([a-zA-Z0-9_\s\-]+)\]', reply_text)
+        mood = mood_match.group(1).lower().strip() if mood_match else "normal"
+        
         reply_text_clean = re.sub(r'\[.*?\]', '', reply_text).strip()
         
-        # 6. Tampilkan balasan akhir
-        await status_msg.edit_text(f"🗣️ *Anda:* _{recognized_text}_\n\n🤖 *Amadeus:*\n{reply_text_clean}", parse_mode="Markdown")
+        # Log structured interaction to GUI
+        if log_queue is not None:
+            log_queue.put({
+                "type": "telegram_chat",
+                "user_text": recognized_text,
+                "reply_text": reply_text_clean,
+                "mood": mood,
+                "is_voice": True
+            })
+            
+        # 6. Tampilkan balasan akhir dengan keyboard rating
+        await status_msg.edit_text(f"🗣️ *Anda:* _{recognized_text}_\n\n *Amadeus:*\n{reply_text_clean}", parse_mode="Markdown", reply_markup=get_rate_keyboard(row_id))
 
     except Exception as e:
         logger.error(f"Error memproses pesan suara: {e}")
@@ -590,8 +658,9 @@ def main() -> None:
     application.add_handler(CommandHandler("note_hapus", note_hapus_command))
     application.add_handler(CommandHandler("help", help_command))
     
-    # Callback query for model selector button clicks
-    application.add_handler(CallbackQueryHandler(model_callback_handler))
+    # Callback query handlers for model selector and rating button clicks
+    application.add_handler(CallbackQueryHandler(model_callback_handler, pattern="^(local|cloud_2_5|cloud_3_5)$"))
+    application.add_handler(CallbackQueryHandler(rate_callback_handler, pattern="^rate_lora:"))
     
     # General messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))

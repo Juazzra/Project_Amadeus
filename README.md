@@ -11,7 +11,7 @@ Project Amadeus adalah asisten AI hybrid (otak lokal & cloud) yang dirancang men
 - **🎭 Visual Novel Interface**:
   Antarmuka berbasis GUI Tkinter yang kaya estetika cyberpunk dengan video latar belakang bergerak, efek glitch saat pergantian emosi karakter, dan suara pengisi suara Kurisu asli (voice barks) yang ter-cache dengan pengaturan volume custom.
 - **💸 Financial Logger & Database**:
-  Pencatat pengeluaran/pemasukan otomatis langsung dari percakapan (desktop & Telegram). Data disimpan secara teratur di database SQLite (`amadeus_finansial.db`).
+  Pencatat pengeluaran/pemasukan otomatis langsung dari percakapan (desktop & Telegram). Data disimpan secara teratur di database SQLite (`data/amadeus.db`).
 - **📊 Unified Overlay Panel**:
   - **💸 Transaksi**: Tabel riwayat keuangan cyberpunk, hapus data, ekspor ke CSV, dan fitur **Analisis AI Finansial** yang memberikan kritik/saran keuangan dengan gaya khas *tsundere* Kurisu.
   - **📊 Visualisasi**: Grafik visual analisis pengeluaran (Pie Chart) dan tren saldo kumulatif (Line Chart) berbasis Matplotlib yang ter-render di dalam GUI.
@@ -35,6 +35,8 @@ Project Amadeus adalah asisten AI hybrid (otak lokal & cloud) yang dirancang men
   Mengirimkan pesan suara (Voice Note) langsung ke bot Telegram. Bot akan mengunduh, mengonversi format audio menggunakan pustaka `soundfile` secara mandiri, mentranskripsinya otomatis ke teks (Bahasa Indonesia), dan memproses percakapan via AI.
 - **🧹 Clean History Context**:
   Secara otomatis membersihkan blok kode JSON hasil ekstraksi AI (data keuangan, alarm, catatan, memori) sebelum disimpan ke dalam memori riwayat chat. Ini menghemat token API secara signifikan dan mencegah AI dari bias format atau halusinasi JSON.
+- **💸 AI Financial Self-Correction (Edit & Hapus via Chat)**:
+  Merevisi (mengedit) nominal/deskripsi atau membatalkan (menghapus) transaksi keuangan sebelumnya secara dinamis langsung lewat percakapan alami atau rekaman suara (berlaku di Desktop VN maupun bot Telegram). Saldo HUD dan grafik desktop otomatis ter-refresh secara instan.
 
 ---
 
@@ -141,6 +143,14 @@ Project_Amadeus/
 │   ├── sprites Amadeus/            # Ratusan sprite visual VN Kurisu
 │   └── voice/                      # File audio suara Kurisu (.wav)
 │
+├── data/                           # Folder data lokal aktif (diabaikan Git)
+│   ├── amadeus.db                  # Database SQLite transaksi, pengingat tugas, & catatan
+│   └── amadeus_config.json         # Pengaturan konfigurasi hybrid yang tersimpan
+│
+├── backups/                        # Arsip database lama / cadangan (diabaikan Git)
+│   ├── amadeus_finansial.db        # Database lama pra-migrasi
+│   └── amadeus_finansial.db.bak    # File cadangan database lama (.bak)
+│
 ├── dump req/                       # Aset multimedia GUI
 │   ├── amadeus_sprite/             # Sprite Amadeus untuk emosi aktif
 │   ├── intro_bg/                   # Video latar belakang, video intro, & musik intro
@@ -159,14 +169,12 @@ Project_Amadeus/
 │   ├── telegram_bot.py             # Bot Telegram asinkron asisten jarak jauh
 │   └── terminal.py                 # Versi CLI terminal asisten Amadeus
 │
-├── support/                        # File utilitas & diagnostik
+├── support/                        # File utilitas, diagnostik, & skrip pengujian
 │   ├── cek_model.py                # Pencarian model Gemini aktif pendukung API key
 │   ├── test_limit_API.py           # Uji coba batasan/rate-limit API kuota Gemini
-│   └── test_telegram.py            # Skrip unit test pengujian whitelist keamanan dan transkripsi suara
+│   └── scratch_test_gemini.py      # Skrip coba-coba/test model Gemini & Ollama
 │
 ├── run_amadeus.vbs                 # VBScript untuk startup Windows silent mode
-├── amadeus_config.json             # Pengaturan konfigurasi hybrid yang tersimpan
-├── amadeus_finansial.db            # Database SQLite transaksi, pengingat tugas, & catatan
 └── README.md                       # Panduan informasi proyek
 ```
 
