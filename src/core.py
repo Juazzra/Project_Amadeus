@@ -87,7 +87,7 @@ else:
     GEMINI_MODEL = 'gemini-2.5-flash'
 
 # 2. Konfigurasi Ollama (Lokal)
-OLLAMA_MODEL = 'llama3.1'
+OLLAMA_MODEL = 'Hudson/llama3.1-uncensored'
  
 
 # --- Fungsi Database (TETAP SAMA) ---
