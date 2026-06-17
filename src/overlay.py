@@ -803,7 +803,7 @@ class AmadeusVN:
             # 4. Fungsi Eksekusi UI Sukses (lempar ke main thread)
             def update_ui_sukses():
                 played_voice = None
-                if mood_terdeteksi in self.sprites:
+                if mood_terdeteksi in ["normal", "mad", "smiling", "thinking", "look_away", "blushing_tsundere"]:
                     played_voice = self.trigger_glitch_transition(mood_terdeteksi)
                 
                 # Refresh angka saldo di layar
@@ -815,6 +815,11 @@ class AmadeusVN:
                     self.render_tab_tugas()
                 elif self.active_tab == "catatan":
                     self.render_tab_catatan()
+                elif self.active_tab == "settings" and hasattr(self, 'txt_memory') and self.txt_memory.winfo_exists():
+                    cfg = core.load_config()
+                    current_mem = cfg.get("user_memory", "")
+                    self.txt_memory.delete("1.0", tk.END)
+                    self.txt_memory.insert(tk.END, current_mem)
                 
                 voice_str = f" | Voice: {played_voice}" if played_voice else ""
                 self.log_history.append(f"[Amadeus ({mood_terdeteksi}{voice_str})]\n{balasan}")
@@ -833,8 +838,9 @@ class AmadeusVN:
             # Paksa UI menampilkan error, jangan stuck di "Memproses..."
             def update_ui_error():
                 # Ganti wajah ke normal atau thinking (wajah panik/bingung)
-                if "thinking" in self.sprites:
-                    self.canvas.itemconfig(self.sprite_on_canvas, image=self.sprites["thinking"])
+                sprite_thinking = self.get_sprite("thinking")
+                if sprite_thinking:
+                    self.canvas.itemconfig(self.sprite_on_canvas, image=sprite_thinking)
                 
                 self.vn_text.config(text=error_msg)
                 # Tandai ketik selesai agar spasi bisa jalan lagi
@@ -1055,7 +1061,7 @@ Data Ringkasan Transaksi:
             # UI update sukses
             def update_ui_sukses():
                 played_voice = None
-                if mood_terdeteksi in self.sprites:
+                if mood_terdeteksi in ["normal", "mad", "smiling", "thinking", "look_away", "blushing_tsundere"]:
                     played_voice = self.trigger_glitch_transition(mood_terdeteksi)
                 voice_str = f" | Voice: {played_voice}" if played_voice else ""
                 self.log_history.append(f"[Amadeus (Analisis Finansial) ({mood_terdeteksi}{voice_str})]\n{balasan}")
@@ -1068,8 +1074,9 @@ Data Ringkasan Transaksi:
             print(f"[ERROR] {error_msg}")
             
             def update_ui_error():
-                if "thinking" in self.sprites:
-                    self.canvas.itemconfig(self.sprite_on_canvas, image=self.sprites["thinking"])
+                sprite_thinking = self.get_sprite("thinking")
+                if sprite_thinking:
+                    self.canvas.itemconfig(self.sprite_on_canvas, image=sprite_thinking)
                 self.vn_text.config(text=error_msg)
                 self.is_typing = False
 
@@ -1200,8 +1207,7 @@ Data Ringkasan Transaksi:
             self.restore_main_window()
             
         # Glitch ke pose berpikir
-        if "thinking" in self.sprites:
-            self.trigger_glitch_transition("thinking")
+        self.trigger_glitch_transition("thinking")
             
         panggilan = core.dapatkan_panggilan_user()
         panggilan_str = f", {panggilan}" if panggilan else ""

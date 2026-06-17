@@ -183,6 +183,13 @@ NOTES LOGGER MODE:
 If user asks to write down a note or save some notes (e.g. "catat ini...", "tulis catatan...", "buat catatan..."), append valid JSON at END.
 Schema: {"tipe":"catatan","judul":"judul_singkat","konten":"isi_catatan"}
 DO NOT output JSON if just chatting.
+
+USER MEMORY LOGGER MODE:
+If the user shares new personal facts about themselves (such as their name, nickname, favorite things, dislikes, job, habits, or relationship), you must update the user memory.
+You MUST preserve all existing facts from [INGATAN TENTANG USER] and only append or modify the new details in a clean format.
+Append a valid JSON at the END.
+Schema: {"tipe":"memori","user_memory":"Nama: X. Panggilan: Y. Sifat: Z."}
+DO NOT output JSON if no new personal facts are shared.
 """
 
 # ==========================================
@@ -286,23 +293,13 @@ def chat_dengan_amadeus(pesan_user):
             response = ollama.chat(model=OLLAMA_MODEL, messages=messages_payload_ollama)
             teks_balasan = response['message']['content']
             
-        # ==========================================
-        # UPDATE MEMORI & PENYIMPANAN DATA
-        # ==========================================
-        # Simpan interaksi ke dalam memori global (format role/content sederhana)
-        riwayat_chat.append({'role': 'user', 'content': pesan_user})
-        riwayat_chat.append({'role': 'assistant', 'content': teks_balasan})
-        
-        # Potong memori jika kepanjangan agar RAM/VRAM tidak meledak
-        if len(riwayat_chat) > (BATAS_MEMORI * 2):
-            # Buang 2 elemen paling lama (1 user, 1 assistant)
-            riwayat_chat = riwayat_chat[2:]
-            
         # Logika Ekstraksi JSON (Finansial, Pengingat/Tugas, & Catatan)
+        teks_clean = teks_balasan
         if "{" in teks_balasan and "}" in teks_balasan:
             awal = teks_balasan.find("{")
             akhir = teks_balasan.rfind("}") + 1
             data_json = teks_balasan[awal:akhir]
+            teks_clean = teks_balasan[:awal].strip()
             
             try:
                 payload = json.loads(data_json)
@@ -316,6 +313,12 @@ def chat_dengan_amadeus(pesan_user):
                     konten = payload.get('konten')
                     if tambah_catatan(judul, konten, "chat"):
                         print(f"[SYSTEM LOG] Catatan tersimpan via AI: {payload}")
+                elif payload.get('tipe') == 'memori' and 'user_memory' in payload:
+                    new_mem = payload.get('user_memory')
+                    cfg = load_config()
+                    cfg["user_memory"] = new_mem
+                    save_config(cfg)
+                    print(f"[SYSTEM LOG] User memory otomatis diperbarui: {new_mem}")
                 elif payload.get('nominal', 0) > 0: 
                     simpan_ke_database(payload)
                     print(f"[SYSTEM LOG] Data transaksi tersimpan via mode {MODE_AI_AKTIF.upper()}: {payload}")
@@ -323,10 +326,16 @@ def chat_dengan_amadeus(pesan_user):
                 print("[SYSTEM LOG] Gagal menyimpan, JSON tidak valid.")
                 pass 
                 
-            teks_clean = teks_balasan[:awal].strip()
-            return teks_clean
+        # Simpan interaksi ke dalam memori global (gunakan teks_clean tanpa JSON)
+        riwayat_chat.append({'role': 'user', 'content': pesan_user})
+        riwayat_chat.append({'role': 'assistant', 'content': teks_clean})
         
-        return teks_balasan
+        # Potong memori jika kepanjangan agar RAM/VRAM tidak meledak
+        if len(riwayat_chat) > (BATAS_MEMORI * 2):
+            # Buang 2 elemen paling lama (1 user, 1 assistant)
+            riwayat_chat = riwayat_chat[2:]
+            
+        return teks_clean
 
     except Exception as e:
         error_msg = str(e)

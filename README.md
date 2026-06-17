@@ -29,6 +29,12 @@ Project Amadeus adalah asisten AI hybrid (otak lokal & cloud) yang dirancang men
   Buat, baca, dan hapus catatan secara sinkron melalui tab `📝 Catatan` di GUI desktop atau langsung lewat bot Telegram. Mendukung penulisan judul manual atau penentuan judul otomatis (diambil dari 4 kata pertama isi catatan).
 - **🤖 Telegram Bot Integration**:
   Telegram Bot berjalan otomatis di background thread asinkron untuk mencatat keuangan, mengecek saldo, mengganti model AI, melihat memori, mengelola alarm, serta menulis/membaca catatan dari jarak jauh.
+- **🔒 Whitelist Security & Access Control**:
+  Membatasi interaksi bot Telegram hanya untuk User ID yang terdaftar dalam whitelist `ALLOWED_TELEGRAM_USER_IDS` di file `.env` untuk keamanan data pribadi. Bot akan menampilkan User ID penolak secara otomatis jika ada percobaan akses tidak sah.
+- **🎙️ Telegram Voice Note Reader**:
+  Mengirimkan pesan suara (Voice Note) langsung ke bot Telegram. Bot akan mengunduh, mengonversi format audio menggunakan pustaka `soundfile` secara mandiri, mentranskripsinya otomatis ke teks (Bahasa Indonesia), dan memproses percakapan via AI.
+- **🧹 Clean History Context**:
+  Secara otomatis membersihkan blok kode JSON hasil ekstraksi AI (data keuangan, alarm, catatan, memori) sebelum disimpan ke dalam memori riwayat chat. Ini menghemat token API secara signifikan dan mencegah AI dari bias format atau halusinasi JSON.
 
 ---
 
@@ -65,7 +71,7 @@ pip install -r requirements.txt
 ```
 *Atau instal manual pustaka utama berikut:*
 ```bash
-pip install google-genai ollama pillow opencv-python pygame SpeechRecognition pyaudio python-telegram-bot matplotlib pystray
+pip install google-genai ollama pillow opencv-python pygame SpeechRecognition pyaudio python-telegram-bot matplotlib pystray soundfile
 ```
 
 ### 3. Konfigurasi API Key & Environment
@@ -75,6 +81,7 @@ Amadeus menyimpan file kredensial secara aman di folder terabaikan. Buat file `.
 ```env
 GEMINI_API_KEY=isi_api_key_gemini_kamu_di_sini
 TELEGRAM_BOT_TOKEN=isi_token_bot_telegram_kamu_di_sini
+ALLOWED_TELEGRAM_USER_IDS=isi_user_id_telegram_kamu_di_sini (pisahkan dengan koma jika lebih dari satu)
 ```
 
 ---
@@ -154,7 +161,8 @@ Project_Amadeus/
 │
 ├── support/                        # File utilitas & diagnostik
 │   ├── cek_model.py                # Pencarian model Gemini aktif pendukung API key
-│   └── test_limit_API.py           # Uji coba batasan/rate-limit API kuota Gemini
+│   ├── test_limit_API.py           # Uji coba batasan/rate-limit API kuota Gemini
+│   └── test_telegram.py            # Skrip unit test pengujian whitelist keamanan dan transkripsi suara
 │
 ├── run_amadeus.vbs                 # VBScript untuk startup Windows silent mode
 ├── amadeus_config.json             # Pengaturan konfigurasi hybrid yang tersimpan
@@ -167,4 +175,3 @@ Project_Amadeus/
 ## 🤝 Kontribusi
 Ingin mengembangkan Amadeus lebih jauh? Jangan ragu untuk melakukan fork dan mengirimkan *Pull Request*. 
 
-*El Psy Kongroo.*

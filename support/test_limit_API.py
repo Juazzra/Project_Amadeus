@@ -24,9 +24,8 @@ client = genai.Client(api_key=GEMINI_API_KEY)
 
 # Daftar model yang akan kita tes berurutan
 daftar_model = [
+    'gemini-2.5-flash',
     'gemini-3.5-flash',
-    'gemini-2.0-flash',
-    'gemini-2.0-flash-lite-001',
 ]
 
 print("="*50)

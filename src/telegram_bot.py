@@ -1,6 +1,7 @@
 import os
 import logging
 import re
+import functools
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
 import core
@@ -15,12 +16,50 @@ logger = logging.getLogger(__name__)
 # Get Token from Environment
 TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 
+def restricted(func):
+    @functools.wraps(func)
+    async def wrapped(update: Update, context: ContextTypes.DEFAULT_TYPE, *args, **kwargs):
+        user_id = update.effective_user.id if update.effective_user else None
+        
+        # Memuat env terbaru secara dinamis agar perubahan .env langsung berefek
+        core.load_env()
+        
+        allowed_ids_str = os.environ.get("ALLOWED_TELEGRAM_USER_IDS", "")
+        if allowed_ids_str:
+            allowed_ids = [int(x.strip()) for x in allowed_ids_str.split(",") if x.strip().isdigit()]
+            if user_id not in allowed_ids:
+                logger.warning(f"[SECURITY] Percobaan akses tidak sah oleh user ID: {user_id}")
+                
+                panggilan = core.dapatkan_panggilan_user()
+                panggilan_str = f" {panggilan}" if panggilan else ""
+                
+                msg_text = (
+                    f"⚠️ *[AMADEUS SECURITY SYSTEM]*\n\n"
+                    f"Akses ditolak! Kamu tidak terdaftar sebagai pemilik sistem Amadeus{panggilan_str}.\n"
+                    f"ID Telegram Kamu: `{user_id}`\n\n"
+                    f"Silakan tambahkan ID tersebut ke variabel `ALLOWED_TELEGRAM_USER_IDS` di file `.env` sistem Anda untuk memberikan izin."
+                )
+                
+                if update.callback_query:
+                    await update.callback_query.answer(text="Akses ditolak!", show_alert=True)
+                    await update.effective_message.reply_text(msg_text, parse_mode="Markdown")
+                else:
+                    await update.message.reply_text(msg_text, parse_mode="Markdown")
+                return
+        else:
+            # Jika kosong, beri peringatan di log console tapi izinkan akses
+            logger.warning("[SECURITY WARNING] ALLOWED_TELEGRAM_USER_IDS kosong. Bot berjalan dalam mode publik.")
+            
+        return await func(update, context, *args, **kwargs)
+    return wrapped
+
 def save_chat_id(chat_id):
     cfg = core.load_config()
     if cfg.get("telegram_chat_id") != chat_id:
         cfg["telegram_chat_id"] = chat_id
         core.save_config(cfg)
 
+@restricted
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send a message when the command /start is issued."""
     if update.effective_chat:
@@ -51,6 +90,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         )
     await update.message.reply_text(welcome_text)
 
+@restricted
 async def set_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Send an inline keyboard to choose the AI model."""
     keyboard = [
@@ -76,6 +116,7 @@ async def set_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
         parse_mode="Markdown"
     )
 
+@restricted
 async def model_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle callback queries from the inline keyboard."""
     query = update.callback_query
@@ -97,11 +138,13 @@ async def model_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
         parse_mode="Markdown"
     )
 
+@restricted
 async def saldo_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display the current financial balance."""
     saldo = core.hitung_saldo()
     await update.message.reply_text(f"💳 *Saldo Amadeus saat ini:*\nRp {saldo:,}", parse_mode="Markdown")
 
+@restricted
 async def riwayat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display the last 5 transactions."""
     records = core.ambil_riwayat_transaksi()
@@ -116,6 +159,7 @@ async def riwayat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
+@restricted
 async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """View or update user memory."""
     args = context.args
@@ -145,6 +189,7 @@ async def memory_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
             parse_mode="Markdown"
         )
 
+@restricted
 async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display current configurations."""
     cfg = core.load_config()
@@ -169,6 +214,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         parse_mode="Markdown"
     )
 
+@restricted
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle the user message and query Amadeus AI."""
     user_text = update.message.text
@@ -187,6 +233,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     
     await update.message.reply_text(reply_text_clean)
 
+@restricted
 async def tugas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /tugas command to list or add reminders."""
     if update.effective_chat:
@@ -254,6 +301,7 @@ async def tugas_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     except Exception as e:
         await update.message.reply_text(f"❌ Terjadi kesalahan: {e}")
 
+@restricted
 async def tugas_selesai_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /tugas_selesai <id> command."""
     if update.effective_chat:
@@ -270,6 +318,7 @@ async def tugas_selesai_command(update: Update, context: ContextTypes.DEFAULT_TY
     else:
         await update.message.reply_text(f"❌ Gagal memperbarui status pengingat `[{t_id}]`.")
 
+@restricted
 async def tugas_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /tugas_hapus <id> command."""
     if update.effective_chat:
@@ -286,6 +335,7 @@ async def tugas_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(f"❌ Gagal menghapus pengingat `[{t_id}]`.")
 
+@restricted
 async def note_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /note command to list or add notes."""
     if update.effective_chat:
@@ -341,6 +391,7 @@ async def note_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     except Exception as e:
         await update.message.reply_text(f"❌ Terjadi kesalahan: {e}")
 
+@restricted
 async def note_detail_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /note_detail <id> command."""
     if update.effective_chat:
@@ -368,6 +419,7 @@ async def note_detail_command(update: Update, context: ContextTypes.DEFAULT_TYPE
     else:
         await update.message.reply_text(f"❌ Catatan dengan ID `[{c_id}]` tidak ditemukan.", parse_mode="Markdown")
 
+@restricted
 async def note_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handle /note_hapus <id> command."""
     if update.effective_chat:
@@ -384,6 +436,7 @@ async def note_hapus_command(update: Update, context: ContextTypes.DEFAULT_TYPE)
     else:
         await update.message.reply_text(f"❌ Gagal menghapus catatan `[{c_id}]`.")
 
+@restricted
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Display bot commands and help info."""
     if update.effective_chat:
@@ -419,6 +472,95 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     )
     await update.message.reply_text(help_text, parse_mode="Markdown")
 
+@restricted
+async def handle_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handle incoming Telegram voice notes, transcribe them, and chat with Amadeus."""
+    if not update.message or not update.message.voice:
+        return
+        
+    # Cache chat ID
+    if update.effective_chat:
+        save_chat_id(update.effective_chat.id)
+        
+    # Kirim pesan status sementara
+    status_msg = await update.message.reply_text("Amadeus sedang mendengarkan pesan suara Anda... 🎙️")
+    
+    try:
+        import soundfile as sf
+        import speech_recognition as sr
+    except ImportError:
+        await status_msg.edit_text(
+            "❌ *Gagal memproses pesan suara!*\n\n"
+            "Library pendukung belum lengkap di komputer server.\n"
+            "Silakan jalankan perintah ini di terminal server Amadeus:\n"
+            "`pip install soundfile SpeechRecognition`",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Buat nama berkas temporer di folder Ignore folder
+    temp_dir = os.path.join(core.BASE_DIR, "Ignore folder")
+    if not os.path.exists(temp_dir):
+        os.makedirs(temp_dir)
+        
+    ogg_path = os.path.join(temp_dir, f"temp_{update.effective_user.id}.ogg")
+    wav_path = os.path.join(temp_dir, f"temp_{update.effective_user.id}.wav")
+    
+    try:
+        # 1. Download file OGG dari Telegram
+        voice_file = await update.message.voice.get_file()
+        await voice_file.download_to_drive(ogg_path)
+        
+        # 2. Konversi OGG ke WAV menggunakan soundfile
+        try:
+            data, samplerate = sf.read(ogg_path)
+            sf.write(wav_path, data, samplerate)
+        except Exception as e_conv:
+            logger.error(f"Gagal mengonversi OGG ke WAV: {e_conv}")
+            await status_msg.edit_text(
+                "❌ *Gagal membaca format suara!*\n"
+                "Format audio OGG/Opus yang dikirim tidak didukung atau rusak.",
+                parse_mode="Markdown"
+            )
+            return
+            
+        # 3. Transkripsi WAV ke Teks menggunakan SpeechRecognition (Bahasa Indonesia)
+        r = sr.Recognizer()
+        try:
+            with sr.AudioFile(wav_path) as source:
+                audio_data = r.record(source)
+            recognized_text = r.recognize_google(audio_data, language="id-ID")
+            logger.info(f"[VOICE] Hasil transkripsi: '{recognized_text}'")
+        except sr.UnknownValueError:
+            await status_msg.edit_text("❌ Suara tidak terdengar jelas atau tidak dipahami oleh Amadeus.")
+            return
+        except sr.RequestError as e_req:
+            await status_msg.edit_text(f"❌ Layanan Speech Recognition error: {e_req}")
+            return
+            
+        # 4. Update status pesan transkripsi di chat
+        await status_msg.edit_text(f"🗣️ *Anda:* _{recognized_text}_\n\n⌛ _Memproses balasan..._", parse_mode="Markdown")
+        
+        # 5. Kirim teks hasil transkripsi ke AI Amadeus
+        reply_text = chat_dengan_amadeus(recognized_text)
+        reply_text_clean = re.sub(r'\[.*?\]', '', reply_text).strip()
+        
+        # 6. Tampilkan balasan akhir
+        await status_msg.edit_text(f"🗣️ *Anda:* _{recognized_text}_\n\n🤖 *Amadeus:*\n{reply_text_clean}", parse_mode="Markdown")
+
+    except Exception as e:
+        logger.error(f"Error memproses pesan suara: {e}")
+        await status_msg.edit_text(f"❌ Terjadi kesalahan saat memproses audio: {e}")
+        
+    finally:
+        # Bersihkan file sampah temporer
+        if os.path.exists(ogg_path):
+            try: os.remove(ogg_path)
+            except: pass
+        if os.path.exists(wav_path):
+            try: os.remove(wav_path)
+            except: pass
+
 def main() -> None:
     """Start the bot."""
     if not TOKEN:
@@ -453,6 +595,9 @@ def main() -> None:
     
     # General messages
     application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
+    # Voice messages
+    application.add_handler(MessageHandler(filters.VOICE, handle_voice))
 
     # Run the bot polling
     application.run_polling(allowed_updates=Update.ALL_TYPES)
