@@ -417,7 +417,39 @@ class AmadeusVN:
                 continue
                 
             # Pecah paragraf menjadi baris-baris tunggal jika ada single newlines
-            lines = para.split('\n')
+            lines_initial = para.split('\n')
+            lines = []
+            for l in lines_initial:
+                l = l.strip()
+                if not l:
+                    continue
+                if len(l) <= 250:
+                    lines.append(l)
+                else:
+                    # Pecah baris yang terlalu panjang berdasarkan tanda baca (. ? !)
+                    parts = re.split(r'(?<=[.?!])\s+', l)
+                    for part in parts:
+                        part = part.strip()
+                        if not part:
+                            continue
+                        if len(part) <= 250:
+                            lines.append(part)
+                        else:
+                            # Jika satu kalimat masih > 250 karakter, pecah per kata
+                            words = part.split(' ')
+                            current_word_line = []
+                            current_word_len = 0
+                            for word in words:
+                                if current_word_len + len(word) + (1 if current_word_line else 0) > 250:
+                                    if current_word_line:
+                                        lines.append(" ".join(current_word_line))
+                                    current_word_line = [word]
+                                    current_word_len = len(word)
+                                else:
+                                    current_word_line.append(word)
+                                    current_word_len += len(word) + (1 if len(current_word_line) > 1 else 0)
+                            if current_word_line:
+                                lines.append(" ".join(current_word_line))
             
             for line in lines:
                 line = line.strip()
