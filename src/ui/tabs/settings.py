@@ -90,7 +90,7 @@ def render_tab_settings(vn_app):
                             activeforeground="#00ffcc", font=("Consolas", 10))
     r_local.pack(side=tk.LEFT, padx=(0, 15))
     
-    r_cloud_2_5 = tk.Radiobutton(frame_radio, text="Gemini 2.5", variable=vn_app.var_ai_mode, value="cloud_2_5", 
+    r_cloud_2_5 = tk.Radiobutton(frame_radio, text="Gemini 3.1 Lite", variable=vn_app.var_ai_mode, value="cloud_2_5", 
                                 bg="#1a1a1a", fg="#ffcc00", selectcolor="#2a2a2a", activebackground="#1a1a1a",
                                 activeforeground="#ffcc00", font=("Consolas", 10))
     r_cloud_2_5.pack(side=tk.LEFT, padx=(0, 15))
@@ -175,7 +175,7 @@ def render_tab_settings(vn_app):
         if mode_terpilih == "local":
             mode_text = "LOKAL"
         elif mode_terpilih == "cloud_2_5":
-            mode_text = "GEMINI 2.5"
+            mode_text = "GEMINI 3.1 LITE"
         else:
             mode_text = "GEMINI 3.5"
             

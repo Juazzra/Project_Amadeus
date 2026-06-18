@@ -99,7 +99,7 @@ async def set_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     keyboard = [
         [
             InlineKeyboardButton("Lokal (Ollama)", callback_data="local"),
-            InlineKeyboardButton("Gemini 2.5", callback_data="cloud_2_5"),
+            InlineKeyboardButton("Gemini 3.1 Lite", callback_data="cloud_2_5"),
             InlineKeyboardButton("Gemini 3.5", callback_data="cloud_3_5"),
         ]
     ]
@@ -109,7 +109,7 @@ async def set_model_command(update: Update, context: ContextTypes.DEFAULT_TYPE) 
     if current_mode == "local":
         mode_text = "Lokal (Ollama)"
     elif current_mode == "cloud_2_5":
-        mode_text = "Gemini 2.5"
+        mode_text = "Gemini 3.1 Lite"
     else:
         mode_text = "Gemini 3.5"
         
@@ -132,7 +132,7 @@ async def model_callback_handler(update: Update, context: ContextTypes.DEFAULT_T
     if selected_mode == "local":
         mode_text = "Lokal (Ollama)"
     elif selected_mode == "cloud_2_5":
-        mode_text = "Gemini 2.5"
+        mode_text = "Gemini 3.1 Lite"
     else:
         mode_text = "Gemini 3.5"
         
@@ -240,7 +240,7 @@ async def settings_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if mode == "local":
         mode_text = "Lokal (Ollama)"
     elif mode == "cloud_2_5":
-        mode_text = "Gemini 2.5"
+        mode_text = "Gemini 3.1 Lite"
     else:
         mode_text = "Gemini 3.5"
         

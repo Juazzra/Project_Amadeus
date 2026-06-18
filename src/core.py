@@ -84,7 +84,7 @@ gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 if MODE_AI_AKTIF == "cloud_3_5":
     GEMINI_MODEL = 'gemini-3.5-flash'
 else:
-    GEMINI_MODEL = 'gemini-2.5-flash'
+    GEMINI_MODEL = 'gemini-3.1-flash-lite'
 
 # 2. Konfigurasi Ollama (Lokal)
 OLLAMA_MODEL = 'hudson/llama3.1-uncensored:8b'
@@ -602,7 +602,7 @@ def set_mode_ai(mode):
     if mode in ["local", "cloud_2_5", "cloud_3_5"]:
         MODE_AI_AKTIF = mode
         if mode == "cloud_2_5":
-            GEMINI_MODEL = "gemini-2.5-flash"
+            GEMINI_MODEL = "gemini-3.1-flash-lite"
         elif mode == "cloud_3_5":
             GEMINI_MODEL = "gemini-3.5-flash"
         

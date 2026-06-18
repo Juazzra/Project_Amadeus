@@ -863,8 +863,8 @@ class AmadeusVN:
             target_brain = "Ollama Lokal"
             loading_text = "Memproses analisis data Llama lokal..."
         elif mode_aktif == "cloud_2_5":
-            target_brain = "Gemini 2.5 Cloud"
-            loading_text = "Memproses analisis data Gemini 2.5 cloud..."
+            target_brain = "Gemini 3.1 Lite Cloud"
+            loading_text = "Memproses analisis data Gemini 3.1 Lite cloud..."
         else:
             target_brain = "Gemini 3.5 Cloud"
             loading_text = "Memproses analisis data Gemini 3.5 cloud..."
@@ -1114,8 +1114,8 @@ class AmadeusVN:
             target_brain = "Ollama Lokal"
             loading_text = "Menganalisis data keuangan di Llama lokal..."
         elif mode_aktif == "cloud_2_5":
-            target_brain = "Gemini 2.5 Cloud"
-            loading_text = "Menganalisis data keuangan di Gemini 2.5 cloud..."
+            target_brain = "Gemini 3.1 Lite Cloud"
+            loading_text = "Menganalisis data keuangan di Gemini 3.1 Lite cloud..."
         else:
             target_brain = "Gemini 3.5 Cloud"
             loading_text = "Menganalisis data keuangan di Gemini 3.5 cloud..."
